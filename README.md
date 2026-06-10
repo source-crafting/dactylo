@@ -1,5 +1,7 @@
 # dactylo
 
+[![CI](https://github.com/source-crafting/dactylo/actions/workflows/ci.yml/badge.svg)](https://github.com/source-crafting/dactylo/actions/workflows/ci.yml)
+
 A fast terminal typing trainer. Pick a duration and a difficulty level, type an
 endless stream of words against the clock with live per-character color feedback,
 and see how your speed, accuracy, and consistency compare to your own history.
