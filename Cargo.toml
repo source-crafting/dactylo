@@ -3,6 +3,11 @@ name = "dactylo"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+description = "A fast terminal typing trainer with live feedback, difficulty levels, and progress tracking"
+repository = "https://github.com/source-crafting/dactylo"
+readme = "README.md"
+keywords = ["typing", "tui", "terminal", "cli", "wpm"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 ratatui = "0.29"
