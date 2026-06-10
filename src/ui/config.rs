@@ -26,9 +26,19 @@ pub struct ConfigScreen {
 
 impl ConfigScreen {
     pub fn new() -> Self {
+        Self::from_settings(Settings::default())
+    }
+
+    /// Build the setup screen pre-filled from `settings`. A `duration_secs`
+    /// not in `DURATIONS` falls back to the 60s slot; `level` is clamped to 1..=5.
+    pub fn from_settings(settings: Settings) -> Self {
+        let duration_idx = DURATIONS
+            .iter()
+            .position(|&d| d == settings.duration_secs)
+            .unwrap_or(2); // 60s
         ConfigScreen {
-            duration_idx: 2, // 60s
-            level: 3,
+            duration_idx,
+            level: settings.level.clamp(1, 5),
             focus: Focus::Duration,
         }
     }
@@ -189,5 +199,47 @@ mod tests {
             ConfigAction::Quit
         ));
         assert!(matches!(s.handle_key(KeyCode::Esc), ConfigAction::Quit));
+    }
+
+    #[test]
+    fn from_settings_maps_duration_and_level() {
+        let mut s = ConfigScreen::from_settings(Settings {
+            duration_secs: 15,
+            level: 4,
+        });
+        match s.handle_key(KeyCode::Enter) {
+            ConfigAction::Confirm(set) => assert_eq!(
+                set,
+                Settings {
+                    duration_secs: 15,
+                    level: 4
+                }
+            ),
+            _ => panic!("expected confirm"),
+        }
+    }
+
+    #[test]
+    fn from_settings_unknown_duration_falls_back_to_60() {
+        let mut s = ConfigScreen::from_settings(Settings {
+            duration_secs: 45,
+            level: 3,
+        });
+        match s.handle_key(KeyCode::Enter) {
+            ConfigAction::Confirm(set) => assert_eq!(set.duration_secs, 60),
+            _ => panic!("expected confirm"),
+        }
+    }
+
+    #[test]
+    fn from_settings_clamps_level() {
+        let mut s = ConfigScreen::from_settings(Settings {
+            duration_secs: 60,
+            level: 9,
+        });
+        match s.handle_key(KeyCode::Enter) {
+            ConfigAction::Confirm(set) => assert_eq!(set.level, 5),
+            _ => panic!("expected confirm"),
+        }
     }
 }
