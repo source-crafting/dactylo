@@ -43,7 +43,8 @@ dactylo
 ```
 
 Use ←/→ to change a value, Tab to switch between duration and level, Enter to
-start, and `q` to quit.
+start, and `q` to quit. Your last-used duration and level are saved and become
+the defaults next time.
 
 Or skip the setup screen with flags:
 
@@ -60,15 +61,17 @@ If you pass one flag, the other takes its default.
 
 ### During a session
 
-- A 3·2·1 countdown precedes each run.
 - The timer starts on your **first keystroke**, not when the screen appears.
 - **Backspace** corrects the previous character.
-- **Esc** or **Ctrl-C** aborts the session without recording it.
+- **Esc** cancels the run and jumps to the results screen with your partial
+  stats — a cancelled run is **not** saved to history.
+- **Ctrl-C** exits dactylo immediately.
 
 ### Results screen
 
-After time runs out you'll see your stats and how they compare to past sessions
-at the same level. Press `r` to retry with the same settings, or `q`/Esc to quit.
+After time runs out — or after you cancel with Esc — you'll see your stats and
+how they compare to past sessions at the same level. Press **Enter** to restart
+with the same settings, **s** to change settings, or `q`/Esc to quit.
 
 ## Difficulty levels
 
