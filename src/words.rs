@@ -14,7 +14,7 @@ pub struct WordPool {
 }
 
 impl WordPool {
-    /// Levels 1-5; anything above 5 behaves as 5.
+    /// Levels 1-5; any value outside 1-4 returns the full list.
     pub fn for_level(level: u8) -> Self {
         let words: Vec<&'static str> = match level {
             1 => all_words().filter(|w| w.len() <= 5).take(200).collect(),
@@ -40,6 +40,7 @@ impl WordPool {
 
     /// Uniform random word, never equal to `prev` (unless the pool has one word).
     pub fn next_word(&self, prev: Option<&str>, rng: &mut impl Rng) -> &'static str {
+        assert!(!self.words.is_empty(), "WordPool is empty");
         loop {
             let w = self.words[rng.gen_range(0..self.words.len())];
             if Some(w) != prev || self.words.len() == 1 {
