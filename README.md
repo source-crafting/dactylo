@@ -118,8 +118,6 @@ cargo fmt      # format
 cargo clippy --all-targets -- -D warnings
 ```
 
-The design spec and implementation plan live under `docs/superpowers/`.
-
 ## License
 
-Not yet specified.
+Released under the [MIT License](LICENSE).
