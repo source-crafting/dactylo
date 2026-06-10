@@ -12,6 +12,8 @@ Built in Rust with [ratatui](https://ratatui.rs).
 - **Five difficulty levels** — drawn from progressively rarer/longer words.
 - **Live feedback** — correct characters turn green, mistakes show the expected
   character on a red background, and the cursor marks your position.
+- **Focused view** — a centered, fixed-width column shows three lines at a time;
+  the cursor starts on the top line, then stays on the middle line as text scrolls.
 - **Backspace to correct** — fix mistakes as you go (errors still count toward
   accuracy).
 - **End-of-session stats** — WPM, raw WPM, accuracy, errors, and consistency.
@@ -78,6 +80,8 @@ binary. Higher levels widen the pool to include rarer and longer words.
 | 3     | top 3,000 words                    |
 | 4     | top 7,000 words                    |
 | 5     | full list (rare and long words)    |
+
+Only lowercase words of two or more letters are used.
 
 ## Stats
 

@@ -6,7 +6,7 @@ fn all_words() -> impl Iterator<Item = &'static str> {
     RAW_WORDS
         .lines()
         .map(str::trim)
-        .filter(|w| !w.is_empty() && w.chars().all(|c| c.is_ascii_lowercase()))
+        .filter(|w| w.len() >= 2 && w.chars().all(|c| c.is_ascii_lowercase()))
 }
 
 pub struct WordPool {
@@ -71,6 +71,15 @@ mod tests {
                     !w.is_empty() && w.chars().all(|c| c.is_ascii_lowercase()),
                     "bad word at level {level}: {w:?}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn excludes_single_letter_words() {
+        for level in 1..=5 {
+            for w in WordPool::for_level(level).words() {
+                assert!(w.len() >= 2, "single-letter word at level {level}: {w:?}");
             }
         }
     }

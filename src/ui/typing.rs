@@ -9,7 +9,10 @@ use ratatui::Frame;
 use crate::session::{CharState, Session};
 
 /// Number of text lines visible on the typing screen.
-const VISIBLE_LINES: usize = 5;
+const VISIBLE_LINES: u16 = 3;
+
+/// Default width of the centered text column, in columns.
+const DEFAULT_TEXT_WIDTH: u16 = 64;
 
 /// Break `target` into `(start, end)` line ranges of at most `width` chars,
 /// preferring to break after a space (the space stays at the end of the line,
@@ -52,8 +55,9 @@ pub fn draw(frame: &mut Frame, session: &Session, now: Instant, level: u8, durat
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let text_width = inner.width.saturating_sub(4) as usize;
-    let line_ranges = layout_lines(session.target(), text_width);
+    // Fixed-width text column, centered within the frame.
+    let text_width = DEFAULT_TEXT_WIDTH.min(inner.width);
+    let line_ranges = layout_lines(session.target(), text_width as usize);
     let cursor_line = line_ranges
         .iter()
         .position(|&(s, e)| session.cursor() >= s && session.cursor() < e)
@@ -67,15 +71,15 @@ pub fn draw(frame: &mut Frame, session: &Session, now: Instant, level: u8, durat
         session.cursor(),
         session.target().len()
     );
-    // Keep the active line as the second visible line so finished text scrolls away.
+    // The cursor sits on the first visible line until it leaves line 0, then stays
+    // on the center line as finished text scrolls up out of view.
     let first = cursor_line.saturating_sub(1);
-    let visible = &line_ranges[first..(first + VISIBLE_LINES).min(line_ranges.len())];
+    let end = (first + VISIBLE_LINES as usize).min(line_ranges.len());
 
-    // One blank row of top padding inside the border.
-    let mut lines: Vec<Line> = vec![Line::default()];
-    for &(start, end) in visible {
-        let mut spans = vec![Span::raw("  ")];
-        for i in start..end {
+    let mut lines: Vec<Line> = Vec::with_capacity(VISIBLE_LINES as usize);
+    for &(start, stop) in &line_ranges[first..end] {
+        let mut spans = Vec::with_capacity(stop - start);
+        for i in start..stop {
             let mut style = match session.states()[i] {
                 CharState::Correct => Style::new().fg(Color::Green),
                 CharState::Wrong => Style::new().fg(Color::White).bg(Color::Red),
@@ -88,7 +92,23 @@ pub fn draw(frame: &mut Frame, session: &Session, now: Instant, level: u8, durat
         }
         lines.push(Line::from(spans));
     }
-    frame.render_widget(Paragraph::new(lines), inner);
+    // Always render exactly VISIBLE_LINES rows so the block stays vertically stable.
+    while lines.len() < VISIBLE_LINES as usize {
+        lines.push(Line::default());
+    }
+
+    // Vertically center the text rows plus a blank gap and the stats line.
+    let content_height = VISIBLE_LINES + 2;
+    let col_x = inner.x + inner.width.saturating_sub(text_width) / 2;
+    let top = inner.y + inner.height.saturating_sub(content_height) / 2;
+
+    let text_area = Rect {
+        x: col_x,
+        y: top,
+        width: text_width,
+        height: VISIBLE_LINES,
+    };
+    frame.render_widget(Paragraph::new(lines), text_area);
 
     let secs_left = session.remaining(now).as_secs();
     let bar = format!(
@@ -97,13 +117,15 @@ pub fn draw(frame: &mut Frame, session: &Session, now: Instant, level: u8, durat
         session.live_accuracy()
     );
     let bar_area = Rect {
-        x: inner.x + 2,
-        y: inner.bottom().saturating_sub(1),
-        width: inner.width.saturating_sub(4),
+        x: col_x,
+        y: top + VISIBLE_LINES + 1,
+        width: text_width,
         height: 1,
     };
     frame.render_widget(
-        Paragraph::new(bar).style(Style::new().fg(Color::Cyan)),
+        Paragraph::new(bar)
+            .centered()
+            .style(Style::new().fg(Color::Cyan)),
         bar_area,
     );
 }

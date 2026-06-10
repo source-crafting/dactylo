@@ -23,8 +23,9 @@ pub struct SessionResult {
     pub chars: usize,
 }
 
-/// Minimum number of target chars kept ahead of the cursor.
-const LOOKAHEAD: usize = 120;
+/// Minimum number of target chars kept ahead of the cursor. Sized so the typing
+/// screen always has enough text to fill three lines at the default column width.
+const LOOKAHEAD: usize = 256;
 
 pub struct Session {
     pool: WordPool,
