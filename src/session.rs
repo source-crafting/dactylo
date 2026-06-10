@@ -183,7 +183,6 @@ impl Session {
     /// have run to completion (e.g. cancelled with Esc). For a finished session
     /// this equals `results()` because `elapsed` is clamped to `duration`.
     /// Zero-safe: before the first keystroke, elapsed is zero and WPM is 0.0.
-    #[allow(dead_code)]
     pub fn results_at(&self, now: Instant) -> SessionResult {
         let secs = self.elapsed(now).as_secs_f64();
         SessionResult {
