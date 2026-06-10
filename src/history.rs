@@ -45,7 +45,8 @@ impl History {
             fs::create_dir_all(dir)?;
         }
         let mut f = OpenOptions::new().create(true).append(true).open(&self.path)?;
-        let json = serde_json::to_string(record).expect("record serializes");
+        let json = serde_json::to_string(record)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         writeln!(f, "{json}")
     }
 
