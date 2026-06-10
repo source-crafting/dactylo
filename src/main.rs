@@ -62,7 +62,7 @@ fn is_ctrl_c(code: KeyCode, modifiers: KeyModifiers) -> bool {
 }
 
 fn config_screen(terminal: &mut DefaultTerminal) -> io::Result<Option<Settings>> {
-    let mut screen = ConfigScreen::new();
+    let mut screen = ConfigScreen::from_settings(Settings::load());
     loop {
         terminal.draw(|f| ui::config::draw(f, &screen))?;
         if let Event::Key(key) = event::read()? {
@@ -73,7 +73,10 @@ fn config_screen(terminal: &mut DefaultTerminal) -> io::Result<Option<Settings>>
                 return Ok(None);
             }
             match screen.handle_key(key.code) {
-                ConfigAction::Confirm(s) => return Ok(Some(s)),
+                ConfigAction::Confirm(s) => {
+                    s.save();
+                    return Ok(Some(s));
+                }
                 ConfigAction::Quit => return Ok(None),
                 ConfigAction::None => {}
             }

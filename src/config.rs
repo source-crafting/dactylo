@@ -55,7 +55,6 @@ impl Default for Settings {
     }
 }
 
-#[allow(dead_code)]
 impl Settings {
     /// `~/.dactylo/settings.json`, or `None` if the home directory is unknown.
     pub fn default_path() -> Option<PathBuf> {
