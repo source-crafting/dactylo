@@ -77,6 +77,9 @@ impl Session {
     }
 
     pub fn keystroke(&mut self, c: char, now: Instant) {
+        if self.is_finished(now) {
+            return;
+        }
         if self.started_at.is_none() {
             self.started_at = Some(now);
         }
@@ -112,6 +115,9 @@ impl Session {
     }
 
     /// Record one net-WPM sample per elapsed whole second. Call every event-loop pass.
+    /// NOTE: if called less than once per second (event-loop stall, system sleep),
+    /// catch-up samples all use the current correct_chars count, overstating
+    /// early-second WPM. Normal ~50ms polling makes multi-second gaps unlikely.
     pub fn tick(&mut self, now: Instant) {
         if self.started_at.is_none() {
             return;
@@ -137,7 +143,7 @@ impl Session {
     }
 
     pub fn live_accuracy(&self) -> f64 {
-        stats::accuracy(self.keystrokes - self.errors, self.keystrokes)
+        stats::accuracy(self.keystrokes.saturating_sub(self.errors), self.keystrokes)
     }
 
     pub fn target(&self) -> &[char] {
@@ -303,5 +309,18 @@ mod tests {
         assert!((r.accuracy - (50.0 / 51.0 * 100.0)).abs() < 1e-9);
         assert_eq!(r.errors, 1);
         assert_eq!(r.chars, 51);
+    }
+
+    #[test]
+    fn keystroke_after_finish_is_ignored() {
+        let mut s = new_session();
+        let t0 = Instant::now();
+        let c = s.target()[0];
+        s.keystroke(c, t0);
+        let late = t0 + Duration::from_secs(31);
+        s.keystroke('@', late);
+        assert_eq!(s.cursor(), 1);
+        assert_eq!(s.results().errors, 0);
+        assert_eq!(s.results().chars, 1);
     }
 }
