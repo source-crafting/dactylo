@@ -1,4 +1,8 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
 use clap::Parser;
+use serde::{Deserialize, Serialize};
 
 /// Durations offered by the interactive config screen, in seconds.
 pub const DURATIONS: [u64; 4] = [15, 30, 60, 120];
@@ -15,7 +19,7 @@ pub struct Cli {
     pub level: Option<u8>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
     pub duration_secs: u64,
     pub level: u8,
@@ -39,6 +43,58 @@ impl Settings {
             duration_secs,
             level,
         }))
+    }
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            duration_secs: 60,
+            level: 3,
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl Settings {
+    /// `~/.dactylo/settings.json`, or `None` if the home directory is unknown.
+    pub fn default_path() -> Option<PathBuf> {
+        dirs::home_dir().map(|h| h.join(".dactylo").join("settings.json"))
+    }
+
+    /// Read settings from `path`, falling back to `Settings::default()` on any
+    /// missing-file or parse error.
+    pub fn load_from(path: &Path) -> Settings {
+        fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    /// Best-effort write of settings to `path` (creates parent directories).
+    pub fn save_to(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir)?;
+        }
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        fs::write(path, json)
+    }
+
+    /// Load from the default path; returns defaults if it cannot be read.
+    pub fn load() -> Settings {
+        match Self::default_path() {
+            Some(p) => Self::load_from(&p),
+            None => Settings::default(),
+        }
+    }
+
+    /// Best-effort save to the default path; errors are ignored so a failed
+    /// write never blocks play.
+    pub fn save(&self) {
+        if let Some(p) = Self::default_path() {
+            let _ = self.save_to(&p);
+        }
     }
 }
 
@@ -118,5 +174,43 @@ mod tests {
             level: Some(9)
         })
         .is_err());
+    }
+
+    #[test]
+    fn settings_default_is_60s_level_3() {
+        assert_eq!(
+            Settings::default(),
+            Settings {
+                duration_secs: 60,
+                level: 3
+            }
+        );
+    }
+
+    #[test]
+    fn settings_roundtrip_through_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let s = Settings {
+            duration_secs: 120,
+            level: 5,
+        };
+        s.save_to(&path).unwrap();
+        assert_eq!(Settings::load_from(&path), s);
+    }
+
+    #[test]
+    fn load_from_missing_file_is_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("does-not-exist.json");
+        assert_eq!(Settings::load_from(&path), Settings::default());
+    }
+
+    #[test]
+    fn load_from_malformed_is_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, "not json").unwrap();
+        assert_eq!(Settings::load_from(&path), Settings::default());
     }
 }
