@@ -166,6 +166,7 @@ fn results_screen(
         None => (None, None),
     };
 
+    // `draw` wants the user-visible framing; `save` is the I/O intent (exact inverse).
     let cancelled = !save;
     loop {
         terminal.draw(|f| {

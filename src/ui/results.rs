@@ -154,6 +154,7 @@ mod tests {
 
     #[test]
     fn r_is_ignored() {
+        // 'r' was the old retry key; confirm it no longer triggers any action.
         assert!(handle_key(KeyCode::Char('r')).is_none());
     }
 }
