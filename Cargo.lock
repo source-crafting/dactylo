@@ -227,6 +227,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dactylo"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "dirs",
+ "rand",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "darling"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -943,20 +957,6 @@ dependencies = [
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "dactylo"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "dirs",
- "rand",
- "ratatui",
- "serde",
- "serde_json",
- "tempfile",
 ]
 
 [[package]]
