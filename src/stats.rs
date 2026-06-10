@@ -35,7 +35,6 @@ pub fn consistency(samples: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::*;
 
     #[test]
     fn net_wpm_basic() {
