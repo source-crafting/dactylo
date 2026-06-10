@@ -44,9 +44,6 @@ fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Re
                 None => return Ok(()),
             },
         };
-        if !countdown(terminal)? {
-            return Ok(());
-        }
         let Some(result) = typing_screen(terminal, settings)? else {
             return Ok(()); // aborted: nothing recorded
         };
@@ -82,32 +79,6 @@ fn config_screen(terminal: &mut DefaultTerminal) -> io::Result<Option<Settings>>
             }
         }
     }
-}
-
-/// Returns false if the user aborted during the countdown.
-fn countdown(terminal: &mut DefaultTerminal) -> io::Result<bool> {
-    for n in (1..=3u8).rev() {
-        terminal.draw(|f| ui::draw_countdown(f, n))?;
-        let deadline = Instant::now() + Duration::from_millis(700);
-        loop {
-            let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                break;
-            }
-            if event::poll(left)? {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press
-                        && (key.code == KeyCode::Esc
-                            || key.code == KeyCode::Char('q')
-                            || is_ctrl_c(key.code, key.modifiers))
-                    {
-                        return Ok(false);
-                    }
-                }
-            }
-        }
-    }
-    Ok(true)
 }
 
 /// Returns None if the user aborted with Esc/Ctrl-C (no stats recorded).
