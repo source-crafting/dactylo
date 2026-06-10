@@ -43,10 +43,10 @@ dactylo
 ```
 
 The first time, you'll see the setup screen — use ←/→ to change a value, Tab to
-switch between duration and level, Enter to start, and `q`/Esc to quit. Your
-choice is saved, so every later launch drops you **straight into a session**
-with your last-used duration and level. To change them again, press **s** on the
-results screen (Esc there returns you to your stats).
+switch between duration and level, Enter to start, and `q` to quit. Your choice
+is saved, so every later launch drops you **straight into a session** with your
+last-used duration and level. To change them again, press **s** on the results
+screen to reopen setup; from setup, Esc takes you back to your stats.
 
 Or set duration and level explicitly with flags:
 
