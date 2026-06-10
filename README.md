@@ -36,17 +36,19 @@ The binary is produced at `target/release/dactylo`. Copy it somewhere on your
 
 ## Usage
 
-Launch with no arguments for the interactive setup screen:
+Launch with no arguments:
 
 ```bash
 dactylo
 ```
 
-Use ←/→ to change a value, Tab to switch between duration and level, Enter to
-start, and `q` to quit. Your last-used duration and level are saved and become
-the defaults next time.
+The first time, you'll see the setup screen — use ←/→ to change a value, Tab to
+switch between duration and level, Enter to start, and `q`/Esc to quit. Your
+choice is saved, so every later launch drops you **straight into a session**
+with your last-used duration and level. To change them again, press **s** on the
+results screen (Esc there returns you to your stats).
 
-Or skip the setup screen with flags:
+Or set duration and level explicitly with flags:
 
 ```bash
 dactylo --time 60 --level 3

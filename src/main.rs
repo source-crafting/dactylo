@@ -13,7 +13,7 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers
 use ratatui::DefaultTerminal;
 
 use config::{Cli, Settings};
-use history::{History, Record};
+use history::{History, LevelSummary, Record};
 use session::{Session, SessionResult};
 use ui::config::{ConfigAction, ConfigScreen};
 use ui::results::ResultsAction;
@@ -40,26 +40,116 @@ enum TypingOutcome {
     Quit,
 }
 
+/// The screen currently being shown. The app is a loop over these states.
+enum Screen {
+    Setup,
+    Typing(Settings),
+    Stats(StatsView),
+}
+
+/// A finished session's stats, ready to display. History I/O (recording the
+/// result and loading the comparison summary) happens once, in [`StatsView::build`],
+/// so the stats screen can be re-shown — e.g. after bouncing to setup and back —
+/// without re-saving or shifting the "vs previous sessions" comparison.
+struct StatsView {
+    settings: Settings,
+    result: SessionResult,
+    summary: Option<LevelSummary>,
+    warning: Option<String>,
+    cancelled: bool,
+}
+
+impl StatsView {
+    /// Record the result to history (unless `cancelled`) and gather the
+    /// comparison summary. The summary is loaded BEFORE appending so it covers
+    /// previous sessions only.
+    fn build(settings: Settings, result: SessionResult, cancelled: bool) -> StatsView {
+        let save = !cancelled;
+        let (summary, warning) = match History::default_dir() {
+            Some(dir) => {
+                let history = History::new(dir);
+                let summary = history.summary(settings.level);
+                let mut warnings: Vec<String> = Vec::new();
+                if save {
+                    let record = Record {
+                        ts: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                        duration: settings.duration_secs,
+                        level: settings.level,
+                        wpm: result.wpm,
+                        raw_wpm: result.raw_wpm,
+                        accuracy: result.accuracy,
+                        errors: result.errors,
+                        consistency: result.consistency,
+                        chars: result.chars,
+                    };
+                    if let Err(e) = history.append(&record) {
+                        warnings.push(format!("result not saved: {e}"));
+                    }
+                }
+                let skipped = history.skipped_lines();
+                if skipped > 0 {
+                    warnings.push(format!("{skipped} corrupt history line(s) ignored"));
+                }
+                let warning = (!warnings.is_empty()).then(|| warnings.join(" · "));
+                (summary, warning)
+            }
+            None if save => (
+                None,
+                Some("result not saved: could not locate home directory".to_string()),
+            ),
+            None => (None, None),
+        };
+        StatsView {
+            settings,
+            result,
+            summary,
+            warning,
+            cancelled,
+        }
+    }
+}
+
 fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Result<()> {
-    let mut next_settings = cli_settings;
+    // Launch straight into a session when the settings are already known — from
+    // CLI flags, or a previously saved file. Only first-time users (no saved
+    // settings) see the setup screen at startup.
+    let mut screen = match cli_settings.or_else(Settings::load_existing) {
+        Some(s) => Screen::Typing(s),
+        None => Screen::Setup,
+    };
+    // The stats screen to return to when Esc is pressed in setup. Set when the
+    // user opens setup via `s`; cleared once a new session starts.
+    let mut return_to: Option<StatsView> = None;
+
     loop {
-        let settings = match next_settings.take() {
-            Some(s) => s,
-            None => match config_screen(terminal)? {
-                Some(s) => s,
-                None => return Ok(()),
+        screen = match screen {
+            Screen::Setup => match config_screen(terminal)? {
+                ConfigAction::Confirm(s) => {
+                    return_to = None;
+                    Screen::Typing(s)
+                }
+                // Esc: go back to the stats screen we came from, or quit if
+                // there is none (e.g. the first-run setup at startup).
+                ConfigAction::Back => match return_to.take() {
+                    Some(view) => Screen::Stats(view),
+                    None => return Ok(()),
+                },
+                ConfigAction::Quit => return Ok(()),
+            },
+            Screen::Typing(settings) => match typing_screen(terminal, settings)? {
+                TypingOutcome::Quit => return Ok(()),
+                TypingOutcome::Completed(r) => Screen::Stats(StatsView::build(settings, r, false)),
+                TypingOutcome::Cancelled(r) => Screen::Stats(StatsView::build(settings, r, true)),
+            },
+            Screen::Stats(view) => match stats_screen(terminal, &view)? {
+                ResultsAction::Restart => Screen::Typing(view.settings),
+                ResultsAction::ChangeSettings => {
+                    return_to = Some(view);
+                    Screen::Setup
+                }
+                ResultsAction::Quit => return Ok(()),
             },
         };
-        let (result, save) = match typing_screen(terminal, settings)? {
-            TypingOutcome::Quit => return Ok(()),
-            TypingOutcome::Completed(r) => (r, true),
-            TypingOutcome::Cancelled(r) => (r, false),
-        };
-        match results_screen(terminal, settings, &result, save)? {
-            ResultsAction::Restart => next_settings = Some(settings),
-            ResultsAction::ChangeSettings => next_settings = None,
-            ResultsAction::Quit => return Ok(()),
-        }
     }
 }
 
@@ -67,7 +157,8 @@ fn is_ctrl_c(code: KeyCode, modifiers: KeyModifiers) -> bool {
     code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL)
 }
 
-fn config_screen(terminal: &mut DefaultTerminal) -> io::Result<Option<Settings>> {
+fn config_screen(terminal: &mut DefaultTerminal) -> io::Result<ConfigAction> {
+    // Seed the screen from the last saved settings (or defaults on first run).
     let mut screen = ConfigScreen::from_settings(Settings::load());
     loop {
         terminal.draw(|f| ui::config::draw(f, &screen))?;
@@ -76,15 +167,13 @@ fn config_screen(terminal: &mut DefaultTerminal) -> io::Result<Option<Settings>>
                 continue;
             }
             if is_ctrl_c(key.code, key.modifiers) {
-                return Ok(None);
+                return Ok(ConfigAction::Quit);
             }
-            match screen.handle_key(key.code) {
-                ConfigAction::Confirm(s) => {
+            if let Some(action) = screen.handle_key(key.code) {
+                if let ConfigAction::Confirm(s) = &action {
                     s.save();
-                    return Ok(Some(s));
                 }
-                ConfigAction::Quit => return Ok(None),
-                ConfigAction::None => {}
+                return Ok(action);
             }
         }
     }
@@ -123,61 +212,20 @@ fn typing_screen(terminal: &mut DefaultTerminal, settings: Settings) -> io::Resu
     }
 }
 
-fn results_screen(
-    terminal: &mut DefaultTerminal,
-    settings: Settings,
-    result: &SessionResult,
-    save: bool,
-) -> io::Result<ResultsAction> {
-    // Summary is loaded BEFORE appending so the comparison covers previous
-    // sessions only. Cancelled runs (save == false) are shown but not recorded.
-    let (summary, warning) = match History::default_dir() {
-        Some(dir) => {
-            let history = History::new(dir);
-            let summary = history.summary(settings.level);
-            let mut warnings: Vec<String> = Vec::new();
-            if save {
-                let record = Record {
-                    ts: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-                    duration: settings.duration_secs,
-                    level: settings.level,
-                    wpm: result.wpm,
-                    raw_wpm: result.raw_wpm,
-                    accuracy: result.accuracy,
-                    errors: result.errors,
-                    consistency: result.consistency,
-                    chars: result.chars,
-                };
-                if let Err(e) = history.append(&record) {
-                    warnings.push(format!("result not saved: {e}"));
-                }
-            }
-            let skipped = history.skipped_lines();
-            if skipped > 0 {
-                warnings.push(format!("{skipped} corrupt history line(s) ignored"));
-            }
-            let warning = (!warnings.is_empty()).then(|| warnings.join(" · "));
-            (summary, warning)
-        }
-        None if save => (
-            None,
-            Some("result not saved: could not locate home directory".to_string()),
-        ),
-        None => (None, None),
-    };
-
-    // `draw` wants the user-visible framing; `save` is the I/O intent (exact inverse).
-    let cancelled = !save;
+/// Draw the stats screen and wait for the user's next action. Pure display —
+/// all history I/O already happened in [`StatsView::build`], so this can be
+/// re-entered (e.g. returning from setup via Esc) without side effects.
+fn stats_screen(terminal: &mut DefaultTerminal, view: &StatsView) -> io::Result<ResultsAction> {
     loop {
         terminal.draw(|f| {
             ui::results::draw(
                 f,
-                result,
-                summary.as_ref(),
-                settings.level,
-                settings.duration_secs,
-                warning.as_deref(),
-                cancelled,
+                &view.result,
+                view.summary.as_ref(),
+                view.settings.level,
+                view.settings.duration_secs,
+                view.warning.as_deref(),
+                view.cancelled,
             )
         })?;
         if let Event::Key(key) = event::read()? {
