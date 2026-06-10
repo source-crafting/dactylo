@@ -17,7 +17,7 @@ pub fn draw(
     summary: Option<&LevelSummary>,
     level: u8,
     duration_secs: u64,
-    save_error: Option<&str>,
+    warning: Option<&str>,
 ) {
     let area = frame.area();
     let block = Block::bordered().title(format!(" results — level {level} · {duration_secs}s "));
@@ -55,10 +55,10 @@ pub fn draw(
         None => lines.push(Line::from("  first session at this level — no history yet")),
     }
 
-    if let Some(err) = save_error {
+    if let Some(err) = warning {
         lines.push(Line::default());
         lines.push(Line::from(Span::styled(
-            format!("  warning: result not saved: {err}"),
+            format!("  warning: {err}"),
             Style::new().fg(Color::Yellow),
         )));
     }

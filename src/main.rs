@@ -145,7 +145,7 @@ fn results_screen(
     result: &SessionResult,
 ) -> io::Result<ResultsAction> {
     // Summary is loaded BEFORE appending so the comparison covers previous sessions only.
-    let (summary, save_error) = match History::default_dir() {
+    let (summary, warning) = match History::default_dir() {
         Some(dir) => {
             let history = History::new(dir);
             let summary = history.summary(settings.level);
@@ -160,10 +160,21 @@ fn results_screen(
                 consistency: result.consistency,
                 chars: result.chars,
             };
-            let save_error = history.append(&record).err().map(|e| e.to_string());
-            (summary, save_error)
+            let mut warnings: Vec<String> = Vec::new();
+            if let Err(e) = history.append(&record) {
+                warnings.push(format!("result not saved: {e}"));
+            }
+            let skipped = history.skipped_lines();
+            if skipped > 0 {
+                warnings.push(format!("{skipped} corrupt history line(s) ignored"));
+            }
+            let warning = (!warnings.is_empty()).then(|| warnings.join(" · "));
+            (summary, warning)
         }
-        None => (None, Some("could not locate home directory".to_string())),
+        None => (
+            None,
+            Some("result not saved: could not locate home directory".to_string()),
+        ),
     };
 
     loop {
@@ -174,7 +185,7 @@ fn results_screen(
                 summary.as_ref(),
                 settings.level,
                 settings.duration_secs,
-                save_error.as_deref(),
+                warning.as_deref(),
             )
         })?;
         if let Event::Key(key) = event::read()? {

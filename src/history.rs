@@ -66,6 +66,17 @@ impl History {
             .collect()
     }
 
+    /// Number of non-empty lines in the history file that fail to parse.
+    pub fn skipped_lines(&self) -> usize {
+        let Ok(content) = fs::read_to_string(&self.path) else {
+            return 0;
+        };
+        content
+            .lines()
+            .filter(|l| !l.trim().is_empty() && serde_json::from_str::<Record>(l).is_err())
+            .count()
+    }
+
     pub fn summary(&self, level: u8) -> Option<LevelSummary> {
         let recs: Vec<Record> = self
             .load()
@@ -144,6 +155,20 @@ mod tests {
         writeln!(f, "this is not json").unwrap();
         h.append(&record(3, 60.0, 97.0)).unwrap();
         assert_eq!(h.load().len(), 2);
+    }
+
+    #[test]
+    fn skipped_lines_counts_malformed() {
+        let dir = tempfile::tempdir().unwrap();
+        let h = History::new(dir.path().to_path_buf());
+        assert_eq!(h.skipped_lines(), 0);
+        h.append(&record(3, 50.0, 95.0)).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(dir.path().join("history.jsonl"))
+            .unwrap();
+        writeln!(f, "this is not json").unwrap();
+        assert_eq!(h.skipped_lines(), 1);
     }
 
     #[test]
