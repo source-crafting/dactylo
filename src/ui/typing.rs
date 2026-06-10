@@ -61,10 +61,20 @@ pub fn draw(frame: &mut Frame, session: &Session, now: Instant, level: u8, durat
         .iter()
         .position(|&(s, e)| session.cursor() >= s && session.cursor() < e)
         .unwrap_or(0);
+    debug_assert!(
+        line_ranges.is_empty()
+            || line_ranges
+                .iter()
+                .any(|&(s, e)| session.cursor() >= s && session.cursor() < e),
+        "cursor {} outside all line ranges (target len {})",
+        session.cursor(),
+        session.target().len()
+    );
     // Keep the active line as the second visible line so finished text scrolls away.
     let first = cursor_line.saturating_sub(1);
     let visible = &line_ranges[first..(first + VISIBLE_LINES).min(line_ranges.len())];
 
+    // One blank row of top padding inside the border.
     let mut lines: Vec<Line> = vec![Line::default()];
     for &(start, end) in visible {
         let mut spans = vec![Span::raw("  ")];
@@ -91,7 +101,7 @@ pub fn draw(frame: &mut Frame, session: &Session, now: Instant, level: u8, durat
     );
     let bar_area = Rect {
         x: inner.x + 2,
-        y: inner.y + inner.height - 1,
+        y: inner.bottom().saturating_sub(1),
         width: inner.width.saturating_sub(4),
         height: 1,
     };
