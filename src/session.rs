@@ -102,8 +102,9 @@ impl Session {
     }
 
     pub fn elapsed(&self, now: Instant) -> Duration {
-        self.started_at
-            .map_or(Duration::ZERO, |start| now.duration_since(start).min(self.duration))
+        self.started_at.map_or(Duration::ZERO, |start| {
+            now.duration_since(start).min(self.duration)
+        })
     }
 
     pub fn remaining(&self, now: Instant) -> Duration {
@@ -125,8 +126,10 @@ impl Session {
         let secs = self.elapsed(now).as_secs();
         while self.sampled_secs < secs {
             self.sampled_secs += 1;
-            self.wpm_samples
-                .push(stats::net_wpm(self.correct_chars(), self.sampled_secs as f64));
+            self.wpm_samples.push(stats::net_wpm(
+                self.correct_chars(),
+                self.sampled_secs as f64,
+            ));
         }
     }
 

@@ -37,14 +37,19 @@ impl History {
     }
 
     pub fn new(dir: PathBuf) -> Self {
-        History { path: dir.join("history.jsonl") }
+        History {
+            path: dir.join("history.jsonl"),
+        }
     }
 
     pub fn append(&self, record: &Record) -> std::io::Result<()> {
         if let Some(dir) = self.path.parent() {
             fs::create_dir_all(dir)?;
         }
-        let mut f = OpenOptions::new().create(true).append(true).open(&self.path)?;
+        let mut f = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)?;
         let json = serde_json::to_string(record)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         writeln!(f, "{json}")
@@ -62,7 +67,11 @@ impl History {
     }
 
     pub fn summary(&self, level: u8) -> Option<LevelSummary> {
-        let recs: Vec<Record> = self.load().into_iter().filter(|r| r.level == level).collect();
+        let recs: Vec<Record> = self
+            .load()
+            .into_iter()
+            .filter(|r| r.level == level)
+            .collect();
         if recs.is_empty() {
             return None;
         }

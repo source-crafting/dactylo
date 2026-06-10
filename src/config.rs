@@ -35,7 +35,10 @@ impl Settings {
         if !(1..=5).contains(&level) {
             return Err("--level must be between 1 and 5".into());
         }
-        Ok(Some(Settings { duration_secs, level }))
+        Ok(Some(Settings {
+            duration_secs,
+            level,
+        }))
     }
 }
 
@@ -45,38 +48,75 @@ mod tests {
 
     #[test]
     fn no_flags_means_interactive() {
-        let cli = Cli { time: None, level: None };
+        let cli = Cli {
+            time: None,
+            level: None,
+        };
         assert_eq!(Settings::from_cli(&cli).unwrap(), None);
     }
 
     #[test]
     fn full_flags_produce_settings() {
-        let cli = Cli { time: Some(120), level: Some(5) };
+        let cli = Cli {
+            time: Some(120),
+            level: Some(5),
+        };
         assert_eq!(
             Settings::from_cli(&cli).unwrap(),
-            Some(Settings { duration_secs: 120, level: 5 })
+            Some(Settings {
+                duration_secs: 120,
+                level: 5
+            })
         );
     }
 
     #[test]
     fn partial_flags_fill_defaults() {
-        let cli = Cli { time: Some(30), level: None };
+        let cli = Cli {
+            time: Some(30),
+            level: None,
+        };
         assert_eq!(
             Settings::from_cli(&cli).unwrap(),
-            Some(Settings { duration_secs: 30, level: 3 })
+            Some(Settings {
+                duration_secs: 30,
+                level: 3
+            })
         );
-        let cli = Cli { time: None, level: Some(1) };
+        let cli = Cli {
+            time: None,
+            level: Some(1),
+        };
         assert_eq!(
             Settings::from_cli(&cli).unwrap(),
-            Some(Settings { duration_secs: 60, level: 1 })
+            Some(Settings {
+                duration_secs: 60,
+                level: 1
+            })
         );
     }
 
     #[test]
     fn invalid_values_rejected() {
-        assert!(Settings::from_cli(&Cli { time: Some(3), level: None }).is_err());
-        assert!(Settings::from_cli(&Cli { time: Some(601), level: None }).is_err());
-        assert!(Settings::from_cli(&Cli { time: None, level: Some(0) }).is_err());
-        assert!(Settings::from_cli(&Cli { time: None, level: Some(9) }).is_err());
+        assert!(Settings::from_cli(&Cli {
+            time: Some(3),
+            level: None
+        })
+        .is_err());
+        assert!(Settings::from_cli(&Cli {
+            time: Some(601),
+            level: None
+        })
+        .is_err());
+        assert!(Settings::from_cli(&Cli {
+            time: None,
+            level: Some(0)
+        })
+        .is_err());
+        assert!(Settings::from_cli(&Cli {
+            time: None,
+            level: Some(9)
+        })
+        .is_err());
     }
 }

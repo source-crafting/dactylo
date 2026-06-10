@@ -32,11 +32,6 @@ impl WordPool {
     }
 
     #[cfg(test)]
-    pub fn is_empty(&self) -> bool {
-        self.words.is_empty()
-    }
-
-    #[cfg(test)]
     pub fn words(&self) -> &[&'static str] {
         &self.words
     }

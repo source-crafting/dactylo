@@ -119,9 +119,8 @@ fn typing_screen(
         if session.is_finished(now) {
             return Ok(Some(session.results()));
         }
-        terminal.draw(|f| {
-            ui::typing::draw(f, &session, now, settings.level, settings.duration_secs)
-        })?;
+        terminal
+            .draw(|f| ui::typing::draw(f, &session, now, settings.level, settings.duration_secs))?;
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind != KeyEventKind::Press {

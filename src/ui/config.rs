@@ -93,9 +93,19 @@ pub fn draw(frame: &mut Frame, screen: &ConfigScreen) {
 
     let lines = vec![
         Line::default(),
-        option_row("duration", &dur_labels, screen.duration_idx, screen.focus == Focus::Duration),
+        option_row(
+            "duration",
+            &dur_labels,
+            screen.duration_idx,
+            screen.focus == Focus::Duration,
+        ),
         Line::default(),
-        option_row("level", &lvl_labels, (screen.level - 1) as usize, screen.focus == Focus::Level),
+        option_row(
+            "level",
+            &lvl_labels,
+            (screen.level - 1) as usize,
+            screen.focus == Focus::Level,
+        ),
         Line::default(),
         Line::from(Span::styled(
             "  ←/→ change · tab switch · enter start · q quit",
@@ -136,7 +146,13 @@ mod tests {
         let mut s = ConfigScreen::new();
         match s.handle_key(KeyCode::Enter) {
             ConfigAction::Confirm(set) => {
-                assert_eq!(set, Settings { duration_secs: 60, level: 3 })
+                assert_eq!(
+                    set,
+                    Settings {
+                        duration_secs: 60,
+                        level: 3
+                    }
+                )
             }
             _ => panic!("expected confirm"),
         }
@@ -153,7 +169,13 @@ mod tests {
         s.handle_key(KeyCode::Left); // clamps at 1
         match s.handle_key(KeyCode::Enter) {
             ConfigAction::Confirm(set) => {
-                assert_eq!(set, Settings { duration_secs: 120, level: 1 })
+                assert_eq!(
+                    set,
+                    Settings {
+                        duration_secs: 120,
+                        level: 1
+                    }
+                )
             }
             _ => panic!("expected confirm"),
         }
@@ -162,7 +184,10 @@ mod tests {
     #[test]
     fn q_and_esc_quit() {
         let mut s = ConfigScreen::new();
-        assert!(matches!(s.handle_key(KeyCode::Char('q')), ConfigAction::Quit));
+        assert!(matches!(
+            s.handle_key(KeyCode::Char('q')),
+            ConfigAction::Quit
+        ));
         assert!(matches!(s.handle_key(KeyCode::Esc), ConfigAction::Quit));
     }
 }

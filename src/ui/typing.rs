@@ -44,10 +44,7 @@ pub fn layout_lines(target: &[char], width: usize) -> Vec<(usize, usize)> {
 pub fn draw(frame: &mut Frame, session: &Session, now: Instant, level: u8, duration_secs: u64) {
     let area = frame.area();
     if area.width < 40 || area.height < 10 {
-        frame.render_widget(
-            Paragraph::new("please enlarge terminal").centered(),
-            area,
-        );
+        frame.render_widget(Paragraph::new("please enlarge terminal").centered(), area);
         return;
     }
 

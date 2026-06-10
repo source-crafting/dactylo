@@ -52,9 +52,7 @@ pub fn draw(
                 "%",
             ));
         }
-        None => lines.push(Line::from(
-            "  first session at this level — no history yet",
-        )),
+        None => lines.push(Line::from("  first session at this level — no history yet")),
     }
 
     if let Some(err) = save_error {
