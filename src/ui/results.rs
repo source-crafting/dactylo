@@ -67,7 +67,7 @@ pub fn draw(
 
     lines.push(Line::default());
     lines.push(Line::from(Span::styled(
-        "  [r] retry   [q] quit",
+        "  [r] retry   [q/esc] quit",
         Style::new().fg(Color::DarkGray),
     )));
     frame.render_widget(Paragraph::new(lines), inner);

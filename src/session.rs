@@ -158,6 +158,7 @@ impl Session {
         self.cursor
     }
 
+    #[cfg(test)]
     pub fn wpm_samples(&self) -> &[f64] {
         &self.wpm_samples
     }

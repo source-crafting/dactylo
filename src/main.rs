@@ -94,7 +94,9 @@ fn countdown(terminal: &mut DefaultTerminal) -> io::Result<bool> {
             if event::poll(left)? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press
-                        && (key.code == KeyCode::Esc || is_ctrl_c(key.code, key.modifiers))
+                        && (key.code == KeyCode::Esc
+                            || key.code == KeyCode::Char('q')
+                            || is_ctrl_c(key.code, key.modifiers))
                     {
                         return Ok(false);
                     }
@@ -129,6 +131,7 @@ fn typing_screen(
                     KeyCode::Esc => return Ok(None),
                     KeyCode::Char(_) if is_ctrl_c(key.code, key.modifiers) => return Ok(None),
                     KeyCode::Backspace => session.backspace(),
+                    // Fresh Instant: timestamp at receipt, not at render start.
                     KeyCode::Char(c) => session.keystroke(c, Instant::now()),
                     _ => {}
                 }

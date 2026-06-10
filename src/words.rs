@@ -26,14 +26,17 @@ impl WordPool {
         WordPool { words }
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.words.len()
     }
 
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.words.is_empty()
     }
 
+    #[cfg(test)]
     pub fn words(&self) -> &[&'static str] {
         &self.words
     }
