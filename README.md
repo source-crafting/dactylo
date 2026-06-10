@@ -71,7 +71,12 @@ at the same level. Press `r` to retry with the same settings, or `q`/Esc to quit
 ## Difficulty levels
 
 Words are sampled from a frequency-ranked English word list embedded in the
-binary. Higher levels widen the pool to include rarer and longer words.
+binary (`assets/words-en.txt`). Higher levels widen the pool to include rarer and
+longer words. The list is curated to contain real words — abbreviations, acronyms,
+codes, brand and personal names, and other non-word tokens have been removed.
+
+The file is named by language (`words-en.txt`) so the trainer can grow to support
+other languages by adding e.g. `words-de.txt` in the future.
 
 | Level | Word pool                          |
 |-------|------------------------------------|
@@ -81,7 +86,7 @@ binary. Higher levels widen the pool to include rarer and longer words.
 | 4     | top 7,000 words                    |
 | 5     | full list (rare and long words)    |
 
-Only lowercase words of two or more letters are used.
+Only lowercase real words of two or more letters are used.
 
 ## Stats
 

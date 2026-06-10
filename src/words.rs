@@ -1,6 +1,6 @@
 use rand::Rng;
 
-const RAW_WORDS: &str = include_str!("../assets/words.txt");
+const RAW_WORDS: &str = include_str!("../assets/words-en.txt");
 
 fn all_words() -> impl Iterator<Item = &'static str> {
     RAW_WORDS
