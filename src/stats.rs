@@ -1,12 +1,14 @@
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 pub fn net_wpm(correct_chars: usize, seconds: f64) -> f64 {
-    if seconds <= 0.0 {
+    if !(seconds > 0.0) {
         return 0.0;
     }
     (correct_chars as f64 / 5.0) / (seconds / 60.0)
 }
 
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 pub fn raw_wpm(typed_chars: usize, seconds: f64) -> f64 {
-    if seconds <= 0.0 {
+    if !(seconds > 0.0) {
         return 0.0;
     }
     (typed_chars as f64 / 5.0) / (seconds / 60.0)
@@ -16,15 +18,16 @@ pub fn accuracy(correct_keystrokes: usize, total_keystrokes: usize) -> f64 {
     if total_keystrokes == 0 {
         return 100.0;
     }
-    correct_keystrokes as f64 / total_keystrokes as f64 * 100.0
+    (correct_keystrokes as f64 / total_keystrokes as f64 * 100.0).min(100.0)
 }
 
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 pub fn consistency(samples: &[f64]) -> f64 {
     if samples.is_empty() {
         return 0.0;
     }
     let mean = samples.iter().sum::<f64>() / samples.len() as f64;
-    if mean <= 0.0 {
+    if !(mean > 0.0) {
         return 0.0;
     }
     let variance = samples.iter().map(|s| (s - mean).powi(2)).sum::<f64>() / samples.len() as f64;
@@ -88,5 +91,16 @@ mod tests {
     fn consistency_clamped_at_zero() {
         // mean 50, sd 50, cv 100% -> 0
         assert_eq!(consistency(&[0.0, 100.0]), 0.0);
+    }
+
+    #[test]
+    fn wpm_negative_seconds_is_zero() {
+        assert_eq!(net_wpm(100, -1.0), 0.0);
+        assert_eq!(net_wpm(100, f64::NAN), 0.0);
+    }
+
+    #[test]
+    fn consistency_single_sample_is_hundred() {
+        assert_eq!(consistency(&[42.0]), 100.0);
     }
 }
