@@ -19,9 +19,9 @@ pub enum Focus {
 }
 
 pub struct ConfigScreen {
-    pub duration_idx: usize,
-    pub level: u8,
-    pub focus: Focus,
+    duration_idx: usize,
+    level: u8,
+    focus: Focus,
 }
 
 impl ConfigScreen {
@@ -40,11 +40,19 @@ impl ConfigScreen {
                 duration_secs: DURATIONS[self.duration_idx],
                 level: self.level,
             }),
-            KeyCode::Up | KeyCode::Down | KeyCode::Tab => {
+            KeyCode::Tab => {
                 self.focus = match self.focus {
                     Focus::Duration => Focus::Level,
                     Focus::Level => Focus::Duration,
                 };
+                ConfigAction::None
+            }
+            KeyCode::Up | KeyCode::BackTab => {
+                self.focus = Focus::Duration;
+                ConfigAction::None
+            }
+            KeyCode::Down => {
+                self.focus = Focus::Level;
                 ConfigAction::None
             }
             KeyCode::Left => {
@@ -65,6 +73,12 @@ impl ConfigScreen {
             }
             _ => ConfigAction::None,
         }
+    }
+}
+
+impl Default for ConfigScreen {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
