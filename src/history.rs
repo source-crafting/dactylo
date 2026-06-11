@@ -28,7 +28,6 @@ pub struct LevelSummary {
 
 /// One session's chartable metrics, in chronological order within a level.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[allow(dead_code)]
 pub struct SessionPoint {
     pub wpm: f64,
     pub accuracy: f64,
@@ -57,7 +56,6 @@ pub fn summary_of(records: &[Record], level: u8) -> Option<LevelSummary> {
 
 /// The chartable (wpm, accuracy) series for `level`, in file (chronological)
 /// order.
-#[allow(dead_code)]
 pub fn series_of(records: &[Record], level: u8) -> Vec<SessionPoint> {
     records
         .iter()
