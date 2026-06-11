@@ -36,16 +36,19 @@ The binary is produced at `target/release/dactylo`. Copy it somewhere on your
 
 ## Usage
 
-Launch with no arguments for the interactive setup screen:
+Launch with no arguments:
 
 ```bash
 dactylo
 ```
 
-Use ←/→ to change a value, Tab to switch between duration and level, Enter to
-start, and `q` to quit.
+The first time, you'll see the setup screen — use ←/→ to change a value, Tab to
+switch between duration and level, Enter to start, and `q` to quit. Your choice
+is saved, so every later launch drops you **straight into a session** with your
+last-used duration and level. To change them again, press **s** on the results
+screen to reopen setup; from setup, Esc takes you back to your stats.
 
-Or skip the setup screen with flags:
+Or set duration and level explicitly with flags:
 
 ```bash
 dactylo --time 60 --level 3
@@ -60,15 +63,17 @@ If you pass one flag, the other takes its default.
 
 ### During a session
 
-- A 3·2·1 countdown precedes each run.
 - The timer starts on your **first keystroke**, not when the screen appears.
 - **Backspace** corrects the previous character.
-- **Esc** or **Ctrl-C** aborts the session without recording it.
+- **Esc** cancels the run and jumps to the results screen with your partial
+  stats — a cancelled run is **not** saved to history.
+- **Ctrl-C** exits dactylo immediately.
 
 ### Results screen
 
-After time runs out you'll see your stats and how they compare to past sessions
-at the same level. Press `r` to retry with the same settings, or `q`/Esc to quit.
+After time runs out — or after you cancel with Esc — you'll see your stats and
+how they compare to past sessions at the same level. Press **Enter** to restart
+with the same settings, **s** to change settings, or `q`/Esc to quit.
 
 ## Difficulty levels
 

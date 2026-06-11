@@ -1,3 +1,4 @@
+use ratatui::crossterm::event::KeyCode;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
@@ -7,8 +8,20 @@ use crate::history::LevelSummary;
 use crate::session::SessionResult;
 
 pub enum ResultsAction {
-    Retry,
+    Restart,
+    ChangeSettings,
     Quit,
+}
+
+/// Map a results-screen keypress to an action. Returns `None` for keys that do
+/// nothing here. (Ctrl-C is handled by the caller before this is consulted.)
+pub fn handle_key(code: KeyCode) -> Option<ResultsAction> {
+    match code {
+        KeyCode::Enter => Some(ResultsAction::Restart),
+        KeyCode::Char('s') | KeyCode::Char('S') => Some(ResultsAction::ChangeSettings),
+        KeyCode::Char('q') | KeyCode::Esc => Some(ResultsAction::Quit),
+        _ => None,
+    }
 }
 
 pub fn draw(
@@ -18,9 +31,15 @@ pub fn draw(
     level: u8,
     duration_secs: u64,
     warning: Option<&str>,
+    cancelled: bool,
 ) {
     let area = frame.area();
-    let block = Block::bordered().title(format!(" results — level {level} · {duration_secs}s "));
+    let title = if cancelled {
+        format!(" results — level {level} · {duration_secs}s · cancelled ")
+    } else {
+        format!(" results — level {level} · {duration_secs}s ")
+    };
+    let block = Block::bordered().title(title);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -36,6 +55,14 @@ pub fn draw(
         Line::from(format!("  consistency  {:>5.1}%", result.consistency)),
         Line::default(),
     ];
+
+    if cancelled {
+        lines.push(Line::from(Span::styled(
+            "  session cancelled — not saved to history",
+            Style::new().fg(Color::Yellow),
+        )));
+        lines.push(Line::default());
+    }
 
     match summary {
         Some(sum) => {
@@ -65,7 +92,7 @@ pub fn draw(
 
     lines.push(Line::default());
     lines.push(Line::from(Span::styled(
-        "  [r] retry   [q/esc] quit",
+        "  [enter] restart   [s] settings   [q/esc] quit",
         Style::new().fg(Color::DarkGray),
     )));
     frame.render_widget(Paragraph::new(lines), inner);
@@ -86,4 +113,48 @@ fn delta_line(label: &str, value: f64, avg: f64, best: f64, unit: &str) -> Line<
         ),
         Span::raw(format!("    best {best:.1}{unit}")),
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::crossterm::event::KeyCode;
+
+    #[test]
+    fn enter_restarts() {
+        assert!(matches!(
+            handle_key(KeyCode::Enter),
+            Some(ResultsAction::Restart)
+        ));
+    }
+
+    #[test]
+    fn s_opens_settings() {
+        assert!(matches!(
+            handle_key(KeyCode::Char('s')),
+            Some(ResultsAction::ChangeSettings)
+        ));
+        assert!(matches!(
+            handle_key(KeyCode::Char('S')),
+            Some(ResultsAction::ChangeSettings)
+        ));
+    }
+
+    #[test]
+    fn q_and_esc_quit() {
+        assert!(matches!(
+            handle_key(KeyCode::Char('q')),
+            Some(ResultsAction::Quit)
+        ));
+        assert!(matches!(
+            handle_key(KeyCode::Esc),
+            Some(ResultsAction::Quit)
+        ));
+    }
+
+    #[test]
+    fn r_is_ignored() {
+        // 'r' was the old retry key; confirm it no longer triggers any action.
+        assert!(handle_key(KeyCode::Char('r')).is_none());
+    }
 }

@@ -178,6 +178,22 @@ impl Session {
             chars: self.keystrokes,
         }
     }
+
+    /// Stats computed over elapsed time at `now`, for a session that may not
+    /// have run to completion (e.g. cancelled with Esc). For a finished session
+    /// this equals `results()` because `elapsed` is clamped to `duration`.
+    /// Zero-safe: before the first keystroke, elapsed is zero and WPM is 0.0.
+    pub fn results_at(&self, now: Instant) -> SessionResult {
+        let secs = self.elapsed(now).as_secs_f64();
+        SessionResult {
+            wpm: stats::net_wpm(self.correct_chars(), secs),
+            raw_wpm: stats::raw_wpm(self.keystrokes, secs),
+            accuracy: self.live_accuracy(),
+            errors: self.errors,
+            consistency: stats::consistency(&self.wpm_samples),
+            chars: self.keystrokes,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -314,6 +330,30 @@ mod tests {
         assert!((r.accuracy - (50.0 / 51.0 * 100.0)).abs() < 1e-9);
         assert_eq!(r.errors, 1);
         assert_eq!(r.chars, 51);
+    }
+
+    #[test]
+    fn results_at_uses_elapsed_time() {
+        let mut s = new_session(); // 30s duration
+        let t0 = Instant::now();
+        for _ in 0..50 {
+            let c = s.target()[s.cursor()];
+            s.keystroke(c, t0);
+        }
+        // 50 correct chars over 15s elapsed -> (50/5)/(15/60) = 40 wpm
+        let r = s.results_at(t0 + Duration::from_secs(15));
+        assert!((r.wpm - 40.0).abs() < 1e-9);
+        assert_eq!(r.chars, 50);
+    }
+
+    #[test]
+    fn results_at_before_any_keystroke_is_zero_safe() {
+        let s = new_session();
+        let t0 = Instant::now();
+        let r = s.results_at(t0 + Duration::from_secs(5));
+        assert_eq!(r.wpm, 0.0);
+        assert_eq!(r.raw_wpm, 0.0);
+        assert_eq!(r.chars, 0);
     }
 
     #[test]

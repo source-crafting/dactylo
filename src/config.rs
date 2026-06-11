@@ -1,4 +1,8 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
 use clap::Parser;
+use serde::{Deserialize, Serialize};
 
 /// Durations offered by the interactive config screen, in seconds.
 pub const DURATIONS: [u64; 4] = [15, 30, 60, 120];
@@ -15,7 +19,7 @@ pub struct Cli {
     pub level: Option<u8>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
     pub duration_secs: u64,
     pub level: u8,
@@ -39,6 +43,56 @@ impl Settings {
             duration_secs,
             level,
         }))
+    }
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            duration_secs: 60,
+            level: 3,
+        }
+    }
+}
+
+impl Settings {
+    /// `~/.dactylo/settings.json`, or `None` if the home directory is unknown.
+    pub fn default_path() -> Option<PathBuf> {
+        dirs::home_dir().map(|h| h.join(".dactylo").join("settings.json"))
+    }
+
+    /// Read settings from `path`, returning `None` if the file is missing or
+    /// cannot be parsed. Callers use this to tell "no saved settings" apart from
+    /// "saved settings happen to equal the defaults".
+    pub fn try_load_from(path: &Path) -> Option<Settings> {
+        fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+    }
+
+    /// Load settings from the default path, returning `None` when no readable
+    /// settings file exists yet (e.g. first run). Used to decide whether to
+    /// launch straight into a session or show the setup screen.
+    pub fn load_existing() -> Option<Settings> {
+        Self::try_load_from(&Self::default_path()?)
+    }
+
+    /// Best-effort write of settings to `path` (creates parent directories).
+    pub fn save_to(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir)?;
+        }
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        fs::write(path, json)
+    }
+
+    /// Best-effort save to the default path; errors are ignored so a failed
+    /// write never blocks play.
+    pub fn save(&self) {
+        if let Some(p) = Self::default_path() {
+            let _ = self.save_to(&p);
+        }
     }
 }
 
@@ -118,5 +172,43 @@ mod tests {
             level: Some(9)
         })
         .is_err());
+    }
+
+    #[test]
+    fn settings_default_is_60s_level_3() {
+        assert_eq!(
+            Settings::default(),
+            Settings {
+                duration_secs: 60,
+                level: 3
+            }
+        );
+    }
+
+    #[test]
+    fn try_load_from_reads_valid_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let s = Settings {
+            duration_secs: 30,
+            level: 2,
+        };
+        s.save_to(&path).unwrap();
+        assert_eq!(Settings::try_load_from(&path), Some(s));
+    }
+
+    #[test]
+    fn try_load_from_missing_file_is_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("does-not-exist.json");
+        assert_eq!(Settings::try_load_from(&path), None);
+    }
+
+    #[test]
+    fn try_load_from_malformed_is_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, "not json").unwrap();
+        assert_eq!(Settings::try_load_from(&path), None);
     }
 }
