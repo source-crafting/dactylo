@@ -62,19 +62,12 @@ impl Settings {
     }
 
     /// Read settings from `path`, returning `None` if the file is missing or
-    /// cannot be parsed. Distinct from [`load_from`](Self::load_from), which
-    /// substitutes defaults: callers use this to tell "no saved settings" apart
-    /// from "saved settings happen to equal the defaults".
+    /// cannot be parsed. Callers use this to tell "no saved settings" apart from
+    /// "saved settings happen to equal the defaults".
     pub fn try_load_from(path: &Path) -> Option<Settings> {
         fs::read_to_string(path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
-    }
-
-    /// Read settings from `path`, falling back to `Settings::default()` on any
-    /// missing-file or parse error.
-    pub fn load_from(path: &Path) -> Settings {
-        Self::try_load_from(path).unwrap_or_default()
     }
 
     /// Load settings from the default path, returning `None` when no readable
@@ -92,14 +85,6 @@ impl Settings {
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         fs::write(path, json)
-    }
-
-    /// Load from the default path; returns defaults if it cannot be read.
-    pub fn load() -> Settings {
-        match Self::default_path() {
-            Some(p) => Self::load_from(&p),
-            None => Settings::default(),
-        }
     }
 
     /// Best-effort save to the default path; errors are ignored so a failed
@@ -198,33 +183,6 @@ mod tests {
                 level: 3
             }
         );
-    }
-
-    #[test]
-    fn settings_roundtrip_through_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("settings.json");
-        let s = Settings {
-            duration_secs: 120,
-            level: 5,
-        };
-        s.save_to(&path).unwrap();
-        assert_eq!(Settings::load_from(&path), s);
-    }
-
-    #[test]
-    fn load_from_missing_file_is_default() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("does-not-exist.json");
-        assert_eq!(Settings::load_from(&path), Settings::default());
-    }
-
-    #[test]
-    fn load_from_malformed_is_default() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("settings.json");
-        std::fs::write(&path, "not json").unwrap();
-        assert_eq!(Settings::load_from(&path), Settings::default());
     }
 
     #[test]

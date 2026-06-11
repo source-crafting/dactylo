@@ -27,10 +27,6 @@ pub struct ConfigScreen {
 }
 
 impl ConfigScreen {
-    pub fn new() -> Self {
-        Self::from_settings(Settings::default())
-    }
-
     /// Build the setup screen pre-filled from `settings`. A `duration_secs`
     /// not in `DURATIONS` falls back to the 60s slot; `level` is clamped to 1..=5.
     pub fn from_settings(settings: Settings) -> Self {
@@ -94,11 +90,13 @@ impl ConfigScreen {
 
 impl Default for ConfigScreen {
     fn default() -> Self {
-        Self::new()
+        Self::from_settings(Settings::default())
     }
 }
 
-pub fn draw(frame: &mut Frame, screen: &ConfigScreen) {
+/// Draw the setup screen. `can_return` is true when Esc would return to a stats
+/// screen (setup opened via `s`), false when Esc just quits (first-run launch).
+pub fn draw(frame: &mut Frame, screen: &ConfigScreen, can_return: bool) {
     let area = frame.area();
     let block = Block::bordered().title(" dactylo — setup ");
     let inner = block.inner(area);
@@ -124,7 +122,11 @@ pub fn draw(frame: &mut Frame, screen: &ConfigScreen) {
         ),
         Line::default(),
         Line::from(Span::styled(
-            "  ←/→ change · tab switch · enter start · q quit",
+            if can_return {
+                "  ←/→ change · tab switch · enter start · esc back · q quit"
+            } else {
+                "  ←/→ change · tab switch · enter start · esc/q quit"
+            },
             Style::new().fg(Color::DarkGray),
         )),
     ];
@@ -159,7 +161,7 @@ mod tests {
 
     #[test]
     fn defaults_are_60s_level_3() {
-        let mut s = ConfigScreen::new();
+        let mut s = ConfigScreen::default();
         match s.handle_key(KeyCode::Enter) {
             Some(ConfigAction::Confirm(set)) => {
                 assert_eq!(
@@ -176,7 +178,7 @@ mod tests {
 
     #[test]
     fn arrows_change_values_and_clamp() {
-        let mut s = ConfigScreen::new();
+        let mut s = ConfigScreen::default();
         s.handle_key(KeyCode::Right); // duration 60 -> 120
         s.handle_key(KeyCode::Right); // clamps at 120
         s.handle_key(KeyCode::Tab); // focus level
@@ -199,7 +201,7 @@ mod tests {
 
     #[test]
     fn q_quits_and_esc_goes_back() {
-        let mut s = ConfigScreen::new();
+        let mut s = ConfigScreen::default();
         assert!(matches!(
             s.handle_key(KeyCode::Char('q')),
             Some(ConfigAction::Quit)
@@ -212,7 +214,7 @@ mod tests {
 
     #[test]
     fn navigation_keys_return_none() {
-        let mut s = ConfigScreen::new();
+        let mut s = ConfigScreen::default();
         assert!(s.handle_key(KeyCode::Tab).is_none());
         assert!(s.handle_key(KeyCode::Left).is_none());
         assert!(s.handle_key(KeyCode::Right).is_none());
