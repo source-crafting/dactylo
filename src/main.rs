@@ -16,7 +16,7 @@ use config::{Cli, Settings};
 use history::{History, LevelSummary, Record};
 use session::{Session, SessionResult};
 use ui::config::{ConfigAction, ConfigScreen};
-use ui::results::ResultsAction;
+use ui::results::{ResultsAction, ResultsScreen};
 
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
@@ -45,84 +45,84 @@ enum TypingOutcome {
 enum Screen {
     Setup(Settings),
     Typing(Settings),
-    Stats(StatsView),
+    Stats(ResultsScreen),
 }
 
-/// A finished session's stats, ready to display. History I/O (recording the
-/// result and loading the comparison summary) happens once, in [`StatsView::build`],
-/// so the stats screen can be re-shown — e.g. after bouncing to setup and back —
-/// without re-saving or shifting the "vs previous sessions" comparison.
-struct StatsView {
+/// History I/O result for a finished session, gathered once.
+struct Snapshot {
+    /// All records after this run was (conditionally) appended.
+    records: Vec<Record>,
+    /// Played level's summary BEFORE the append — for the this-session delta.
+    prev_summary: Option<LevelSummary>,
+    warning: Option<String>,
+}
+
+/// Record the result to history (unless `cancelled`), then load the full
+/// snapshot. `history` is `None` only when the home directory can't be located.
+/// The pre-append summary is captured before appending so the this-session
+/// delta compares against previous sessions only.
+fn record_and_snapshot(
+    history: Option<&History>,
     settings: Settings,
     result: SessionResult,
-    summary: Option<LevelSummary>,
-    warning: Option<String>,
     cancelled: bool,
+) -> Snapshot {
+    match history {
+        Some(history) => {
+            let prev_summary = history.summary(settings.level);
+            let mut warnings: Vec<String> = Vec::new();
+            if !cancelled {
+                let record = Record {
+                    ts: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                    duration: settings.duration_secs,
+                    level: settings.level,
+                    wpm: result.wpm,
+                    raw_wpm: result.raw_wpm,
+                    accuracy: result.accuracy,
+                    errors: result.errors,
+                    consistency: result.consistency,
+                    chars: result.chars,
+                };
+                if let Err(e) = history.append(&record) {
+                    warnings.push(format!("result not saved: {e}"));
+                }
+            }
+            let (records, skipped) = history.load_with_skipped();
+            if skipped > 0 {
+                warnings.push(format!("{skipped} corrupt history line(s) ignored"));
+            }
+            let warning = (!warnings.is_empty()).then(|| warnings.join(" · "));
+            Snapshot {
+                records,
+                prev_summary,
+                warning,
+            }
+        }
+        None if !cancelled => Snapshot {
+            records: Vec::new(),
+            prev_summary: None,
+            warning: Some("result not saved: could not locate home directory".to_string()),
+        },
+        None => Snapshot {
+            records: Vec::new(),
+            prev_summary: None,
+            warning: None,
+        },
+    }
 }
 
-impl StatsView {
-    /// Record the result to history (unless `cancelled`) and gather the
-    /// comparison summary, using the default history location.
-    fn build(settings: Settings, result: SessionResult, cancelled: bool) -> StatsView {
-        let history = History::default_dir().map(History::new);
-        Self::build_with(history.as_ref(), settings, result, cancelled)
-    }
-
-    /// Core of [`build`], parameterized over the history store so its
-    /// save/skip and summary-before-append behavior is testable. `history` is
-    /// `None` only when the home directory cannot be located. The summary is
-    /// loaded BEFORE appending so it covers previous sessions only.
-    fn build_with(
-        history: Option<&History>,
-        settings: Settings,
-        result: SessionResult,
-        cancelled: bool,
-    ) -> StatsView {
-        let save = !cancelled;
-        let (summary, warning) = match history {
-            Some(history) => {
-                let summary = history.summary(settings.level);
-                let mut warnings: Vec<String> = Vec::new();
-                if save {
-                    let record = Record {
-                        ts: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-                        duration: settings.duration_secs,
-                        level: settings.level,
-                        wpm: result.wpm,
-                        raw_wpm: result.raw_wpm,
-                        accuracy: result.accuracy,
-                        errors: result.errors,
-                        consistency: result.consistency,
-                        chars: result.chars,
-                    };
-                    if let Err(e) = history.append(&record) {
-                        warnings.push(format!("result not saved: {e}"));
-                    }
-                }
-                // Reports the integrity of the history file we just read for
-                // the comparison summary — surfaced on cancelled runs too,
-                // independent of whether this result was saved.
-                let skipped = history.skipped_lines();
-                if skipped > 0 {
-                    warnings.push(format!("{skipped} corrupt history line(s) ignored"));
-                }
-                let warning = (!warnings.is_empty()).then(|| warnings.join(" · "));
-                (summary, warning)
-            }
-            None if save => (
-                None,
-                Some("result not saved: could not locate home directory".to_string()),
-            ),
-            None => (None, None),
-        };
-        StatsView {
-            settings,
-            result,
-            summary,
-            warning,
-            cancelled,
-        }
-    }
+/// Record the session and build the dashboard screen for it.
+fn results_screen_for(settings: Settings, result: SessionResult, cancelled: bool) -> ResultsScreen {
+    let history = History::default_dir().map(History::new);
+    let snap = record_and_snapshot(history.as_ref(), settings, result, cancelled);
+    ResultsScreen::new(
+        snap.records,
+        settings,
+        result,
+        cancelled,
+        snap.prev_summary,
+        snap.warning,
+    )
 }
 
 fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Result<()> {
@@ -137,7 +137,7 @@ fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Re
     };
     // The stats screen to return to when Esc is pressed in setup. Set when the
     // user opens setup via `s`; cleared once a new session starts.
-    let mut return_to: Option<StatsView> = None;
+    let mut return_to: Option<ResultsScreen> = None;
 
     loop {
         screen = match screen {
@@ -156,16 +156,18 @@ fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Re
             },
             Screen::Typing(settings) => match typing_screen(terminal, settings)? {
                 TypingOutcome::Quit => return Ok(()),
-                TypingOutcome::Completed(r) => Screen::Stats(StatsView::build(settings, r, false)),
-                TypingOutcome::Cancelled(r) => Screen::Stats(StatsView::build(settings, r, true)),
+                TypingOutcome::Completed(r) => {
+                    Screen::Stats(results_screen_for(settings, r, false))
+                }
+                TypingOutcome::Cancelled(r) => Screen::Stats(results_screen_for(settings, r, true)),
             },
-            Screen::Stats(view) => match stats_screen(terminal, &view)? {
-                ResultsAction::Restart => Screen::Typing(view.settings),
+            Screen::Stats(mut screen) => match stats_screen(terminal, &mut screen)? {
+                ResultsAction::Restart => Screen::Typing(screen.settings()),
                 // Pre-fill setup with the active session's settings (not just
                 // the saved file), and remember this screen to return to.
                 ResultsAction::ChangeSettings => {
-                    let seed = view.settings;
-                    return_to = Some(view);
+                    let seed = screen.settings();
+                    return_to = Some(screen);
                     Screen::Setup(seed)
                 }
                 ResultsAction::Quit => return Ok(()),
@@ -236,22 +238,16 @@ fn typing_screen(terminal: &mut DefaultTerminal, settings: Settings) -> io::Resu
     }
 }
 
-/// Draw the stats screen and wait for the user's next action. Pure display —
-/// all history I/O already happened in [`StatsView::build`], so this can be
-/// re-entered (e.g. returning from setup via Esc) without side effects.
-fn stats_screen(terminal: &mut DefaultTerminal, view: &StatsView) -> io::Result<ResultsAction> {
+/// Draw the dashboard and wait for the user's next action. Pure display + level
+/// navigation — all history I/O already happened in [`results_screen_for`], so
+/// this can be re-entered (e.g. returning from setup via Esc) without side
+/// effects, and tab browsing state is preserved across re-entry.
+fn stats_screen(
+    terminal: &mut DefaultTerminal,
+    screen: &mut ResultsScreen,
+) -> io::Result<ResultsAction> {
     loop {
-        terminal.draw(|f| {
-            ui::results::draw(
-                f,
-                &view.result,
-                view.summary.as_ref(),
-                view.settings.level,
-                view.settings.duration_secs,
-                view.warning.as_deref(),
-                view.cancelled,
-            )
-        })?;
+        terminal.draw(|f| screen.draw(f))?;
         if let Event::Key(key) = event::read()? {
             if key.kind != KeyEventKind::Press {
                 continue;
@@ -259,7 +255,7 @@ fn stats_screen(terminal: &mut DefaultTerminal, view: &StatsView) -> io::Result<
             if is_ctrl_c(key.code, key.modifiers) {
                 return Ok(ResultsAction::Quit);
             }
-            if let Some(action) = ui::results::handle_key(key.code) {
+            if let Some(action) = screen.handle_key(key.code) {
                 return Ok(action);
             }
         }
@@ -297,58 +293,50 @@ mod tests {
     #[test]
     fn completed_run_is_appended_once() {
         let (_dir, history) = temp_history();
-        let view = StatsView::build_with(Some(&history), settings(), sample_result(), false);
-        assert!(!view.cancelled);
+        let snap = record_and_snapshot(Some(&history), settings(), sample_result(), false);
         assert_eq!(history.load().len(), 1);
+        assert_eq!(snap.records.len(), 1);
     }
 
     #[test]
     fn cancelled_run_is_not_appended() {
         let (_dir, history) = temp_history();
-        let view = StatsView::build_with(Some(&history), settings(), sample_result(), true);
-        assert!(view.cancelled);
+        let snap = record_and_snapshot(Some(&history), settings(), sample_result(), true);
         assert!(history.load().is_empty());
+        assert!(snap.records.is_empty());
     }
 
     #[test]
-    fn summary_reflects_previous_sessions_only() {
+    fn prev_summary_reflects_previous_sessions_only() {
         let (_dir, history) = temp_history();
-        // Two prior completed level-3 sessions.
-        StatsView::build_with(Some(&history), settings(), sample_result(), false);
-        StatsView::build_with(Some(&history), settings(), sample_result(), false);
-        // A third: its comparison summary must cover the 2 priors, not itself.
-        let view = StatsView::build_with(Some(&history), settings(), sample_result(), false);
-        assert_eq!(view.summary.unwrap().count, 2);
-        // ...and the third is now persisted.
-        assert_eq!(history.load().len(), 3);
+        record_and_snapshot(Some(&history), settings(), sample_result(), false);
+        record_and_snapshot(Some(&history), settings(), sample_result(), false);
+        // Third completed run: prev_summary covers the 2 priors; snapshot has 3.
+        let snap = record_and_snapshot(Some(&history), settings(), sample_result(), false);
+        assert_eq!(snap.prev_summary.unwrap().count, 2);
+        assert_eq!(snap.records.len(), 3);
     }
 
     #[test]
     fn corrupt_history_warns_on_cancelled_run_too() {
         use std::io::Write;
         let (dir, history) = temp_history();
-        // One valid prior record, then a malformed line appended directly.
-        StatsView::build_with(Some(&history), settings(), sample_result(), false);
+        record_and_snapshot(Some(&history), settings(), sample_result(), false);
         let mut f = std::fs::OpenOptions::new()
             .append(true)
             .open(dir.path().join("history.jsonl"))
             .unwrap();
         writeln!(f, "not json").unwrap();
-        // A cancelled run still reads history for the comparison, so the
-        // corruption notice surfaces even though nothing new is saved.
-        let view = StatsView::build_with(Some(&history), settings(), sample_result(), true);
-        assert!(view.cancelled);
-        assert!(view.warning.as_deref().unwrap().contains("corrupt"));
+        let snap = record_and_snapshot(Some(&history), settings(), sample_result(), true);
+        assert!(snap.warning.as_deref().unwrap().contains("corrupt"));
         assert_eq!(history.load().len(), 1); // cancelled run appended nothing
     }
 
     #[test]
     fn missing_home_warns_only_when_saving() {
-        let completed = StatsView::build_with(None, settings(), sample_result(), false);
-        assert!(completed.summary.is_none());
+        let completed = record_and_snapshot(None, settings(), sample_result(), false);
         assert!(completed.warning.is_some());
-
-        let cancelled = StatsView::build_with(None, settings(), sample_result(), true);
+        let cancelled = record_and_snapshot(None, settings(), sample_result(), true);
         assert!(cancelled.warning.is_none());
     }
 }
