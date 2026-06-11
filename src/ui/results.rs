@@ -17,7 +17,7 @@ pub enum ResultsAction {
 }
 
 /// The post-session per-level dashboard: level tabs, the selected level's
-/// summary, the just-played run, and (later task) the WPM/accuracy charts. All
+/// summary, the just-played run, and the WPM/accuracy charts. All
 /// history I/O happens before construction, so this is pure display + nav state
 /// and can be re-shown (e.g. returning from setup) without side effects.
 pub struct ResultsScreen {
@@ -123,7 +123,7 @@ impl ResultsScreen {
     }
 
     /// Text body: per-level summary headline, the this-session line (played tab
-    /// only), warning, footer. Also the small-terminal fallback for a later task.
+    /// only), warning, footer. Also the small-terminal fallback when the charts don't fit.
     fn draw_compact(&self, frame: &mut Frame, inner: Rect) {
         let chunks = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(inner);
         frame.render_widget(self.tabs(), chunks[0]);
@@ -177,7 +177,7 @@ impl ResultsScreen {
     fn draw_full(&self, frame: &mut Frame, inner: Rect) {
         let chunks = Layout::vertical([
             Constraint::Length(1), // tabs
-            Constraint::Length(2), // headline + this-session
+            Constraint::Length(3), // headline + this-session + warning
             Constraint::Min(4),    // wpm chart
             Constraint::Min(4),    // accuracy chart
             Constraint::Length(1), // footer
@@ -200,7 +200,8 @@ impl ResultsScreen {
         }
         if self.selected_level == self.settings.level {
             head.push(self.this_session_line());
-        } else if let Some(w) = &self.warning {
+        }
+        if let Some(w) = &self.warning {
             head.push(Line::from(Span::styled(
                 format!("  warning: {w}"),
                 Style::new().fg(Color::Yellow),
