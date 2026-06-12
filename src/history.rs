@@ -38,10 +38,13 @@ pub struct LevelSummary {
     pub count: usize,
     pub avg_wpm: f64,
     pub best_wpm: f64,
+    pub avg_raw_wpm: f64,
+    pub best_raw_wpm: f64,
     pub avg_accuracy: f64,
     pub best_accuracy: f64,
-    pub best_raw_wpm: f64,
+    pub avg_errors: f64,
     pub min_errors: usize,
+    pub avg_consistency: f64,
     pub best_consistency: f64,
 }
 
@@ -68,10 +71,13 @@ pub fn summary_of(records: &[Record], level: u8) -> Option<LevelSummary> {
         count: recs.len(),
         avg_wpm: recs.iter().map(|r| r.wpm).sum::<f64>() / n,
         best_wpm: recs.iter().map(|r| r.wpm).fold(f64::MIN, f64::max),
+        avg_raw_wpm: recs.iter().map(|r| r.raw_wpm).sum::<f64>() / n,
+        best_raw_wpm: recs.iter().map(|r| r.raw_wpm).fold(f64::MIN, f64::max),
         avg_accuracy: recs.iter().map(|r| r.accuracy).sum::<f64>() / n,
         best_accuracy: recs.iter().map(|r| r.accuracy).fold(f64::MIN, f64::max),
-        best_raw_wpm: recs.iter().map(|r| r.raw_wpm).fold(f64::MIN, f64::max),
+        avg_errors: recs.iter().map(|r| r.errors as f64).sum::<f64>() / n,
         min_errors: recs.iter().map(|r| r.errors).min().unwrap_or(0),
+        avg_consistency: recs.iter().map(|r| r.consistency).sum::<f64>() / n,
         best_consistency: recs.iter().map(|r| r.consistency).fold(f64::MIN, f64::max),
     })
 }
@@ -201,8 +207,11 @@ mod tests {
         assert!((s.avg_accuracy - 96.0).abs() < 1e-9);
         assert_eq!(s.best_accuracy, 97.0);
         assert_eq!(s.best_raw_wpm, 62.0); // max(52, 62)
+        assert!((s.avg_raw_wpm - 57.0).abs() < 1e-9); // (52 + 62) / 2
         assert_eq!(s.min_errors, 3); // both records have errors = 3
+        assert!((s.avg_errors - 3.0).abs() < 1e-9); // both errors = 3
         assert_eq!(s.best_consistency, 90.0); // both have consistency = 90
+        assert!((s.avg_consistency - 90.0).abs() < 1e-9); // both = 90
     }
 
     #[test]

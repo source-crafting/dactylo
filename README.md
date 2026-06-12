@@ -75,8 +75,9 @@ If you pass one flag, the other takes its default.
 
 After time runs out — or after you cancel with Esc — you'll see a 2×3 grid:
 **WPM**, **RAW**, **ACC** on top and **ERRORS**, **CONSIST**, **LEVEL** below,
-each with a delta vs your best at that level (`best yet` on a new record), and
-your level average under **LEVEL**. Press **Enter** to restart, **s** for
+each with a delta vs your average at that level — or a highlighted `best yet`
+when you beat your record for that metric — and your level average under
+**LEVEL**. Press **Enter** to restart, **s** for
 settings, **h** for the history view, or `q`/Esc to quit.
 
 ### History view

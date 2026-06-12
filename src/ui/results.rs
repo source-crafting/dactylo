@@ -124,7 +124,8 @@ impl ResultsScreen {
         }
     }
 
-    /// The just-played session: a 2×3 grid comparing each metric vs your best.
+    /// The just-played session: a 2×3 grid, each metric vs your average (or a
+    /// highlighted "best yet" when this run beat your record).
     fn draw_summary(&self, frame: &mut Frame, area: Rect) {
         let dur = self.settings.duration_secs;
         let right = Line::from(vec![
@@ -153,31 +154,47 @@ impl ResultsScreen {
             "WPM",
             format!("{:.0}", r.wpm),
             "net",
-            self.delta(r.wpm, prev.map(|p| p.best_wpm), true),
+            self.delta(r.wpm, prev.map(|p| (p.avg_wpm, p.best_wpm)), true),
         );
         let raw = metric_cell(
             "RAW",
             format!("{:.0}", r.raw_wpm),
             "",
-            self.delta(r.raw_wpm, prev.map(|p| p.best_raw_wpm), true),
+            self.delta(
+                r.raw_wpm,
+                prev.map(|p| (p.avg_raw_wpm, p.best_raw_wpm)),
+                true,
+            ),
         );
         let acc = metric_cell(
             "ACC",
             format!("{:.0}", r.accuracy),
             "%",
-            self.delta(r.accuracy, prev.map(|p| p.best_accuracy), true),
+            self.delta(
+                r.accuracy,
+                prev.map(|p| (p.avg_accuracy, p.best_accuracy)),
+                true,
+            ),
         );
         let errs = metric_cell(
             "ERRORS",
             format!("{}", r.errors),
             "",
-            self.delta(r.errors as f64, prev.map(|p| p.min_errors as f64), false),
+            self.delta(
+                r.errors as f64,
+                prev.map(|p| (p.avg_errors, p.min_errors as f64)),
+                false,
+            ),
         );
         let cons = metric_cell(
             "CONSIST",
             format!("{:.0}", r.consistency),
             "",
-            self.delta(r.consistency, prev.map(|p| p.best_consistency), true),
+            self.delta(
+                r.consistency,
+                prev.map(|p| (p.avg_consistency, p.best_consistency)),
+                true,
+            ),
         );
         let lvl_delta = match prev {
             Some(p) => dim(format!("your avg {:.0}", p.avg_wpm)),
@@ -242,11 +259,17 @@ impl ResultsScreen {
         frame.render_widget(Paragraph::new(dim(status)), rows[7]);
     }
 
-    /// Build a delta line for a metric, or a dim `—` when there's no prior best.
-    fn delta(&self, value: f64, best: Option<f64>, higher_is_better: bool) -> Line<'static> {
-        match best {
-            Some(best) => {
-                let (arrow, text, color) = metric_delta(value, best, higher_is_better);
+    /// Build a delta line for a metric, or a dim `—` when there's no history yet.
+    /// `avg_best` is the prior (avg, best) for the metric at this level.
+    fn delta(
+        &self,
+        value: f64,
+        avg_best: Option<(f64, f64)>,
+        higher_is_better: bool,
+    ) -> Line<'static> {
+        match avg_best {
+            Some((avg, best)) => {
+                let (arrow, text, color) = metric_delta(value, avg, best, higher_is_better);
                 Line::from(Span::styled(
                     format!("{arrow} {text}"),
                     Style::new().fg(color),
@@ -439,22 +462,37 @@ fn render_cells(frame: &mut Frame, area: Rect, cells: [Paragraph<'static>; 3]) {
     }
 }
 
-/// Compare `value` to your prior `best` for a metric. An improvement (>= best,
-/// or <= best for `!higher_is_better`) is a green `▲ best yet`; otherwise a red
-/// `▼ {gap} off best`.
-fn metric_delta(value: f64, best: f64, higher_is_better: bool) -> (&'static str, String, Color) {
-    let improved = if higher_is_better {
-        value >= best
+/// Compare `value` to your prior `avg` and `best` for a metric. Strictly beating
+/// `best` is a green `▲ best yet`; otherwise the delta is shown vs your average —
+/// `▲ +N vs avg` (green) when on the good side of average, `▼ -N vs avg` (red)
+/// otherwise. `higher_is_better` is false for errors (fewer is better).
+fn metric_delta(
+    value: f64,
+    avg: f64,
+    best: f64,
+    higher_is_better: bool,
+) -> (&'static str, String, Color) {
+    let beat_best = if higher_is_better {
+        value > best
     } else {
-        value <= best
+        value < best
     };
-    if improved {
-        ("▲", "best yet".to_string(), Color::Green)
-    } else if higher_is_better {
-        ("▼", format!("-{:.0} off best", best - value), Color::Red)
-    } else {
-        ("▼", format!("+{:.0} off best", value - best), Color::Red)
+    if beat_best {
+        return ("▲", "best yet".to_string(), Color::Green);
     }
+    // Rounded signed delta vs average (i64 avoids a "-0" display).
+    let shown = (value - avg).round() as i64;
+    let good = if higher_is_better {
+        shown >= 0
+    } else {
+        shown <= 0
+    };
+    let (arrow, color) = if good {
+        ("▲", Color::Green)
+    } else {
+        ("▼", Color::Red)
+    };
+    (arrow, format!("{shown:+} vs avg"), color)
 }
 
 /// The footer hint shown on both the full and compact history views.
@@ -677,24 +715,46 @@ mod tests {
     }
 
     #[test]
-    fn metric_delta_higher_is_better() {
-        let (arrow, text, color) = metric_delta(72.0, 68.0, true);
-        assert_eq!(arrow, "▲");
-        assert_eq!(text, "best yet");
-        assert_eq!(color, ratatui::style::Color::Green);
-        let (arrow, text, color) = metric_delta(60.0, 68.0, true);
-        assert_eq!(arrow, "▼");
-        assert_eq!(text, "-8 off best");
-        assert_eq!(color, ratatui::style::Color::Red);
+    fn metric_delta_best_yet_when_record_beaten() {
+        // higher-is-better: strictly above prior best → best yet
+        let (arrow, text, color) = metric_delta(72.0, 60.0, 68.0, true);
+        assert_eq!(
+            (arrow, text.as_str(), color),
+            ("▲", "best yet", ratatui::style::Color::Green)
+        );
+        // errors (lower-is-better): strictly fewer than fewest → best yet
+        let (arrow, text, color) = metric_delta(2.0, 5.0, 3.0, false);
+        assert_eq!(
+            (arrow, text.as_str(), color),
+            ("▲", "best yet", ratatui::style::Color::Green)
+        );
     }
 
     #[test]
-    fn metric_delta_lower_is_better_for_errors() {
-        let (arrow, text, _) = metric_delta(6.0, 10.0, false);
-        assert_eq!(arrow, "▲");
-        assert_eq!(text, "best yet");
-        let (arrow, text, _) = metric_delta(12.0, 10.0, false);
-        assert_eq!(arrow, "▼");
-        assert_eq!(text, "+2 off best");
+    fn metric_delta_vs_avg_when_not_a_record() {
+        // higher, above avg but below best → green ▲ +N vs avg
+        let (arrow, text, color) = metric_delta(64.0, 60.0, 68.0, true);
+        assert_eq!(
+            (arrow, text.as_str(), color),
+            ("▲", "+4 vs avg", ratatui::style::Color::Green)
+        );
+        // higher, below avg → red ▼ -N vs avg
+        let (arrow, text, color) = metric_delta(55.0, 60.0, 68.0, true);
+        assert_eq!(
+            (arrow, text.as_str(), color),
+            ("▼", "-5 vs avg", ratatui::style::Color::Red)
+        );
+        // errors above average (more errors, not a record) → red ▼ +N vs avg
+        let (arrow, text, color) = metric_delta(7.0, 5.0, 3.0, false);
+        assert_eq!(
+            (arrow, text.as_str(), color),
+            ("▼", "+2 vs avg", ratatui::style::Color::Red)
+        );
+        // errors below average (fewer, but not a record) → green ▲ -N vs avg
+        let (arrow, text, color) = metric_delta(4.0, 5.0, 3.0, false);
+        assert_eq!(
+            (arrow, text.as_str(), color),
+            ("▲", "-1 vs avg", ratatui::style::Color::Green)
+        );
     }
 }
