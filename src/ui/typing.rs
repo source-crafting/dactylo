@@ -3,7 +3,7 @@ use std::time::Instant;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::session::{CharState, Session};
@@ -51,28 +51,35 @@ pub fn draw(frame: &mut Frame, session: &Session, now: Instant, level: u8, durat
         return;
     }
 
-    let block = Block::bordered().title(format!(" dactylo — level {level} · {duration_secs}s "));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    // Header: level · m:ss remaining · faint live wpm/acc.
+    let secs_left = session.remaining(now).as_secs();
+    let _ = duration_secs;
+    let right = Line::from(vec![
+        Span::styled("level ", Style::new().fg(Color::DarkGray)),
+        Span::styled(level.to_string(), Style::new().add_modifier(Modifier::BOLD)),
+        Span::styled(" · ", Style::new().fg(Color::DarkGray)),
+        Span::styled(
+            format!("{}:{:02}", secs_left / 60, secs_left % 60),
+            Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(
+                "  ·  {:.0} wpm · {:.0}%",
+                session.live_wpm(now),
+                session.live_accuracy()
+            ),
+            Style::new().fg(Color::DarkGray),
+        ),
+    ]);
+    let body = crate::ui::chrome::header(frame, area, right);
 
-    // Fixed-width text column, centered within the frame.
-    let text_width = DEFAULT_TEXT_WIDTH.min(inner.width);
+    // Left-aligned text column with a small left margin inside the body.
+    let text_width = DEFAULT_TEXT_WIDTH.min(body.width.saturating_sub(2));
     let line_ranges = layout_lines(session.target(), text_width as usize);
     let cursor_line = line_ranges
         .iter()
         .position(|&(s, e)| session.cursor() >= s && session.cursor() < e)
         .unwrap_or(0);
-    debug_assert!(
-        line_ranges.is_empty()
-            || line_ranges
-                .iter()
-                .any(|&(s, e)| session.cursor() >= s && session.cursor() < e),
-        "cursor {} outside all line ranges (target len {})",
-        session.cursor(),
-        session.target().len()
-    );
-    // The cursor sits on the first visible line until it leaves line 0, then stays
-    // on the center line as finished text scrolls up out of view.
     let first = cursor_line.saturating_sub(1);
     let end = (first + VISIBLE_LINES as usize).min(line_ranges.len());
 
@@ -86,48 +93,26 @@ pub fn draw(frame: &mut Frame, session: &Session, now: Instant, level: u8, durat
                 CharState::Untyped => Style::new().fg(Color::DarkGray),
             };
             if i == session.cursor() {
-                style = style.add_modifier(Modifier::REVERSED);
+                // Cursor highlight: dark text on an amber box.
+                style = Style::new().fg(Color::Black).bg(Color::Yellow);
             }
             spans.push(Span::styled(session.target()[i].to_string(), style));
         }
         lines.push(Line::from(spans));
     }
-    // Always render exactly VISIBLE_LINES rows so the block stays vertically stable.
     while lines.len() < VISIBLE_LINES as usize {
         lines.push(Line::default());
     }
 
-    // Vertically center the text rows plus a blank gap and the stats line.
-    let content_height = VISIBLE_LINES + 2;
-    let col_x = inner.x + inner.width.saturating_sub(text_width) / 2;
-    let top = inner.y + inner.height.saturating_sub(content_height) / 2;
-
+    // Vertically center the text block within the body, left-aligned with a margin.
+    let top = body.y + body.height.saturating_sub(VISIBLE_LINES) / 2;
     let text_area = Rect {
-        x: col_x,
+        x: body.x + 2,
         y: top,
         width: text_width,
         height: VISIBLE_LINES,
     };
     frame.render_widget(Paragraph::new(lines), text_area);
-
-    let secs_left = session.remaining(now).as_secs();
-    let bar = format!(
-        "⏱  {secs_left}s left      wpm {:>3.0}   acc {:>3.0}%",
-        session.live_wpm(now),
-        session.live_accuracy()
-    );
-    let bar_area = Rect {
-        x: col_x,
-        y: top + VISIBLE_LINES + 1,
-        width: text_width,
-        height: 1,
-    };
-    frame.render_widget(
-        Paragraph::new(bar)
-            .centered()
-            .style(Style::new().fg(Color::Cyan)),
-        bar_area,
-    );
 }
 
 #[cfg(test)]
