@@ -73,8 +73,9 @@ pub fn draw(frame: &mut Frame, session: &Session, now: Instant, level: u8, durat
     ]);
     let body = crate::ui::chrome::header(frame, area, right);
 
-    // Left-aligned text column with a small left margin inside the body.
-    let text_width = DEFAULT_TEXT_WIDTH.min(body.width.saturating_sub(2));
+    // Fixed-width text column, centered within the body (text stays left-aligned
+    // inside the column so the cursor doesn't jump as line lengths change).
+    let text_width = DEFAULT_TEXT_WIDTH.min(body.width);
     let line_ranges = layout_lines(session.target(), text_width as usize);
     let cursor_line = line_ranges
         .iter()
@@ -104,10 +105,10 @@ pub fn draw(frame: &mut Frame, session: &Session, now: Instant, level: u8, durat
         lines.push(Line::default());
     }
 
-    // Vertically center the text block within the body, left-aligned with a margin.
+    // Center the text block both ways within the body.
     let top = body.y + body.height.saturating_sub(VISIBLE_LINES) / 2;
     let text_area = Rect {
-        x: body.x + 2,
+        x: body.x + body.width.saturating_sub(text_width) / 2,
         y: top,
         width: text_width,
         height: VISIBLE_LINES,
@@ -117,6 +118,7 @@ pub fn draw(frame: &mut Frame, session: &Session, now: Instant, level: u8, durat
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
