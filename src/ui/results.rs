@@ -283,7 +283,15 @@ impl ResultsScreen {
     /// History dashboard: tabs, a session count, then a normalized sparkline +
     /// numbers for WPM and for accuracy, then the footer. The metric block is
     /// centered between the tabs (top) and footer (bottom).
-    fn draw_history(&self, frame: &mut Frame, inner: Rect) {
+    fn draw_history(&self, frame: &mut Frame, area: Rect) {
+        let body = crate::ui::chrome::header(
+            frame,
+            area,
+            Line::from(Span::styled(
+                "history",
+                Style::new().add_modifier(Modifier::BOLD),
+            )),
+        );
         let chunks = Layout::vertical([
             Constraint::Length(1), // 0 tabs
             Constraint::Min(0),    // 1 top spacer
@@ -294,7 +302,7 @@ impl ResultsScreen {
             Constraint::Min(0),    // 6 bottom spacer
             Constraint::Length(1), // 7 footer
         ])
-        .split(inner);
+        .split(body);
 
         frame.render_widget(self.tabs(), chunks[0]);
 
@@ -354,8 +362,16 @@ impl ResultsScreen {
 
     /// Small-terminal fallback for the history view: same numbers as the full
     /// view but without the sparklines.
-    fn draw_history_compact(&self, frame: &mut Frame, inner: Rect) {
-        let chunks = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(inner);
+    fn draw_history_compact(&self, frame: &mut Frame, area: Rect) {
+        let body = crate::ui::chrome::header(
+            frame,
+            area,
+            Line::from(Span::styled(
+                "history",
+                Style::new().add_modifier(Modifier::BOLD),
+            )),
+        );
+        let chunks = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(body);
         frame.render_widget(self.tabs(), chunks[0]);
 
         let summary = summary_of(&self.records, self.selected_level);
