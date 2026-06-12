@@ -1,7 +1,7 @@
 use ratatui::crossterm::event::KeyCode;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::config::{Settings, DURATIONS};
@@ -97,10 +97,14 @@ impl Default for ConfigScreen {
 /// Draw the setup screen. `can_return` is true when Esc would return to a stats
 /// screen (setup opened via `s`), false when Esc just quits (first-run launch).
 pub fn draw(frame: &mut Frame, screen: &ConfigScreen, can_return: bool) {
-    let area = frame.area();
-    let block = Block::bordered().title(" dactylo — setup ");
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let body = crate::ui::chrome::header(
+        frame,
+        frame.area(),
+        Line::from(Span::styled(
+            "setup",
+            Style::new().add_modifier(Modifier::BOLD),
+        )),
+    );
 
     let dur_labels: Vec<String> = DURATIONS.iter().map(|d| format!("{d}s")).collect();
     let lvl_labels: Vec<String> = (1..=5).map(|l| l.to_string()).collect();
@@ -123,14 +127,14 @@ pub fn draw(frame: &mut Frame, screen: &ConfigScreen, can_return: bool) {
         Line::default(),
         Line::from(Span::styled(
             if can_return {
-                "  ←/→ change · tab switch · enter start · esc back · q quit"
+                "←/→ change · tab switch · enter start · esc back · q quit"
             } else {
-                "  ←/→ change · tab switch · enter start · esc/q quit"
+                "←/→ change · tab switch · enter start · esc/q quit"
             },
             Style::new().fg(Color::DarkGray),
         )),
     ];
-    frame.render_widget(Paragraph::new(lines), inner);
+    frame.render_widget(Paragraph::new(lines), body);
 }
 
 fn option_row(label: &str, options: &[String], selected: usize, focused: bool) -> Line<'static> {
