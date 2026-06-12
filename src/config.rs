@@ -70,11 +70,18 @@ impl Settings {
             .and_then(|s| serde_json::from_str(&s).ok())
     }
 
-    /// Load settings from the default path, returning `None` when no readable
-    /// settings file exists yet (e.g. first run). Used to decide whether to
+    /// Whether both fields are within the accepted ranges (same bounds the CLI
+    /// enforces): duration 5..=600s, level 1..=5.
+    pub fn is_valid(&self) -> bool {
+        (5..=600).contains(&self.duration_secs) && (1..=5).contains(&self.level)
+    }
+
+    /// Load settings from the default path, returning `None` when no readable,
+    /// in-range settings file exists yet (e.g. first run, or a corrupt /
+    /// hand-edited file with out-of-range values). Used to decide whether to
     /// launch straight into a session or show the setup screen.
     pub fn load_existing() -> Option<Settings> {
-        Self::try_load_from(&Self::default_path()?)
+        Self::try_load_from(&Self::default_path()?).filter(Settings::is_valid)
     }
 
     /// Best-effort write of settings to `path` (creates parent directories).
@@ -210,5 +217,47 @@ mod tests {
         let path = dir.path().join("settings.json");
         std::fs::write(&path, "not json").unwrap();
         assert_eq!(Settings::try_load_from(&path), None);
+    }
+
+    #[test]
+    fn is_valid_enforces_ranges() {
+        assert!(Settings {
+            duration_secs: 60,
+            level: 3
+        }
+        .is_valid());
+        assert!(!Settings {
+            duration_secs: 60,
+            level: 0
+        }
+        .is_valid()); // level too low
+        assert!(!Settings {
+            duration_secs: 60,
+            level: 6
+        }
+        .is_valid()); // level too high
+        assert!(!Settings {
+            duration_secs: 4,
+            level: 3
+        }
+        .is_valid()); // duration too short
+        assert!(!Settings {
+            duration_secs: 601,
+            level: 3
+        }
+        .is_valid()); // duration too long
+    }
+
+    #[test]
+    fn out_of_range_settings_file_is_rejected() {
+        // Mirrors load_existing's `try_load_from(..).filter(is_valid)` without the
+        // home-directory dependency: a parseable but out-of-range file is ignored.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"duration_secs":60,"level":0}"#).unwrap();
+        assert_eq!(
+            Settings::try_load_from(&path).filter(Settings::is_valid),
+            None
+        );
     }
 }

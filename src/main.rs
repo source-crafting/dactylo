@@ -13,7 +13,7 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers
 use ratatui::DefaultTerminal;
 
 use config::{Cli, Settings};
-use history::{History, LevelSummary, Record};
+use history::{summary_of, History, LevelSummary, Record};
 use session::{Session, SessionResult};
 use ui::config::{ConfigAction, ConfigScreen};
 use ui::results::{ResultsAction, ResultsScreen};
@@ -57,10 +57,11 @@ struct Snapshot {
     warning: Option<String>,
 }
 
-/// Record the result to history (unless `cancelled`), then load the full
-/// snapshot. `history` is `None` only when the home directory can't be located.
-/// The pre-append summary is captured before appending so the this-session
-/// delta compares against previous sessions only.
+/// Record the result to history (unless `cancelled`) and build the snapshot in a
+/// single file read. `history` is `None` only when the home directory can't be
+/// located. The pre-append records are captured first so the this-session delta
+/// compares against previous sessions only; the just-saved record is then pushed
+/// in-memory rather than re-reading the file.
 fn record_and_snapshot(
     history: Option<&History>,
     settings: Settings,
@@ -69,7 +70,10 @@ fn record_and_snapshot(
 ) -> Snapshot {
     match history {
         Some(history) => {
-            let prev_summary = history.summary(settings.level);
+            let (mut records, skipped) = history.load_with_skipped();
+            // Summary over the pre-append records, so the "vs previous" delta
+            // excludes the run just played.
+            let prev_summary = summary_of(&records, settings.level);
             let mut warnings: Vec<String> = Vec::new();
             if !cancelled {
                 let record = Record {
@@ -83,11 +87,11 @@ fn record_and_snapshot(
                     consistency: result.consistency,
                     chars: result.chars,
                 };
-                if let Err(e) = history.append(&record) {
-                    warnings.push(format!("result not saved: {e}"));
+                match history.append(&record) {
+                    Ok(()) => records.push(record),
+                    Err(e) => warnings.push(format!("result not saved: {e}")),
                 }
             }
-            let (records, skipped) = history.load_with_skipped();
             if skipped > 0 {
                 warnings.push(format!("{skipped} corrupt history line(s) ignored"));
             }
@@ -294,7 +298,7 @@ mod tests {
     fn completed_run_is_appended_once() {
         let (_dir, history) = temp_history();
         let snap = record_and_snapshot(Some(&history), settings(), sample_result(), false);
-        assert_eq!(history.load().len(), 1);
+        assert_eq!(history.load_with_skipped().0.len(), 1);
         assert_eq!(snap.records.len(), 1);
     }
 
@@ -302,7 +306,7 @@ mod tests {
     fn cancelled_run_is_not_appended() {
         let (_dir, history) = temp_history();
         let snap = record_and_snapshot(Some(&history), settings(), sample_result(), true);
-        assert!(history.load().is_empty());
+        assert!(history.load_with_skipped().0.is_empty());
         assert!(snap.records.is_empty());
     }
 
@@ -329,7 +333,7 @@ mod tests {
         writeln!(f, "not json").unwrap();
         let snap = record_and_snapshot(Some(&history), settings(), sample_result(), true);
         assert!(snap.warning.as_deref().unwrap().contains("corrupt"));
-        assert_eq!(history.load().len(), 1); // cancelled run appended nothing
+        assert_eq!(history.load_with_skipped().0.len(), 1); // cancelled run appended nothing
     }
 
     #[test]

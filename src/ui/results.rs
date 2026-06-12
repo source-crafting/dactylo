@@ -53,7 +53,10 @@ impl ResultsScreen {
     ) -> Self {
         ResultsScreen {
             view: View::Summary,
-            selected_level: settings.level,
+            // Clamp defensively: settings.level is always 1..=5 via the validated
+            // entry paths, but `tabs()` does `selected_level - 1`, so guard the
+            // widget against ever underflowing/over-selecting.
+            selected_level: settings.level.clamp(1, 5),
             records,
             settings,
             result,
@@ -180,17 +183,11 @@ impl ResultsScreen {
 
         if let Some(w) = &self.warning {
             lines.push(Line::default());
-            lines.push(Line::from(Span::styled(
-                format!("  warning: {w}"),
-                Style::new().fg(Color::Yellow),
-            )));
+            lines.push(warning_line(w));
         }
 
         lines.push(Line::default());
-        lines.push(Line::from(Span::styled(
-            "  enter restart · s settings · h history · q/esc quit",
-            Style::new().fg(Color::DarkGray),
-        )));
+        lines.push(dim("  enter restart · s settings · h history · q/esc quit"));
         frame.render_widget(Paragraph::new(lines), inner);
     }
 
@@ -237,15 +234,8 @@ impl ResultsScreen {
         frame.render_widget(self.tabs(), chunks[0]);
 
         let summary = summary_of(&self.records, self.selected_level);
-        let count = match &summary {
-            Some(s) => format!("  level {} · {} session(s)", self.selected_level, s.count),
-            None => format!("  level {} · no sessions yet", self.selected_level),
-        };
         frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                count,
-                Style::new().fg(Color::DarkGray),
-            ))),
+            Paragraph::new(dim(level_count_text(self.selected_level, summary.as_ref()))),
             chunks[2],
         );
 
@@ -256,95 +246,85 @@ impl ResultsScreen {
             let latest_wpm = wpm_vals.last().copied().unwrap_or(0.0);
             let latest_acc = acc_vals.last().copied().unwrap_or(0.0);
 
-            let wpm_line = Line::from(vec![
-                Span::styled(
-                    format!("  wpm  {latest_wpm:>4.0}"),
-                    Style::new().fg(Color::Green).add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(format!("  avg {:.0}  best {:.0}", s.avg_wpm, s.best_wpm)),
-            ]);
-            draw_metric_row(frame, chunks[3], wpm_line, &wpm_vals, Color::Green);
+            let wpm_line =
+                metric_numbers("wpm", latest_wpm, s.avg_wpm, s.best_wpm, "", Color::Green);
+            draw_metric_row(
+                frame,
+                chunks[3],
+                wpm_line,
+                &wpm_vals,
+                Color::Green,
+                WPM_MIN_SPAN,
+            );
 
-            let acc_line = Line::from(vec![
-                Span::styled(
-                    format!("  acc  {latest_acc:>3.0}%"),
-                    Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(format!(
-                    "  avg {:.0}%  best {:.0}%",
-                    s.avg_accuracy, s.best_accuracy
-                )),
-            ]);
-            draw_metric_row(frame, chunks[4], acc_line, &acc_vals, Color::Cyan);
+            let acc_line = metric_numbers(
+                "acc",
+                latest_acc,
+                s.avg_accuracy,
+                s.best_accuracy,
+                "%",
+                Color::Cyan,
+            );
+            draw_metric_row(
+                frame,
+                chunks[4],
+                acc_line,
+                &acc_vals,
+                Color::Cyan,
+                ACC_MIN_SPAN,
+            );
         } else {
             frame.render_widget(
-                Paragraph::new(Line::from(Span::styled(
-                    "  play this level to start a trend",
-                    Style::new().fg(Color::DarkGray),
-                ))),
+                Paragraph::new(dim("  play this level to start a trend")),
                 chunks[3],
             );
         }
 
         if let Some(w) = &self.warning {
-            frame.render_widget(
-                Paragraph::new(Line::from(Span::styled(
-                    format!("  warning: {w}"),
-                    Style::new().fg(Color::Yellow),
-                ))),
-                chunks[5],
-            );
+            frame.render_widget(Paragraph::new(warning_line(w)), chunks[5]);
         }
 
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                "  ←/→ level · esc/h back · q quit",
-                Style::new().fg(Color::DarkGray),
-            ))),
-            chunks[7],
-        );
+        frame.render_widget(Paragraph::new(dim(HISTORY_FOOTER)), chunks[7]);
     }
 
-    /// Small-terminal fallback for the history view: text only, no sparklines.
+    /// Small-terminal fallback for the history view: same numbers as the full
+    /// view but without the sparklines.
     fn draw_history_compact(&self, frame: &mut Frame, inner: Rect) {
         let chunks = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(inner);
         frame.render_widget(self.tabs(), chunks[0]);
 
-        let mut lines: Vec<Line> = Vec::new();
-        match summary_of(&self.records, self.selected_level) {
-            Some(s) => {
-                lines.push(Line::from(format!(
-                    "  level {} · {} session(s)",
-                    self.selected_level, s.count
-                )));
-                lines.push(Line::from(format!(
-                    "  wpm   avg {:.1}  best {:.1}",
-                    s.avg_wpm, s.best_wpm
-                )));
-                lines.push(Line::from(format!(
-                    "  acc   avg {:.1}%  best {:.1}%",
-                    s.avg_accuracy, s.best_accuracy
-                )));
-            }
-            None => lines.push(Line::from(format!(
-                "  level {} · no sessions yet",
-                self.selected_level
-            ))),
+        let summary = summary_of(&self.records, self.selected_level);
+        let mut lines: Vec<Line> =
+            vec![dim(level_count_text(self.selected_level, summary.as_ref()))];
+        if let Some(s) = &summary {
+            let series = series_of(&self.records, self.selected_level);
+            let latest_wpm = series.last().map(|p| p.wpm).unwrap_or(0.0);
+            let latest_acc = series.last().map(|p| p.accuracy).unwrap_or(0.0);
+            lines.push(metric_numbers(
+                "wpm",
+                latest_wpm,
+                s.avg_wpm,
+                s.best_wpm,
+                "",
+                Color::Green,
+            ));
+            lines.push(metric_numbers(
+                "acc",
+                latest_acc,
+                s.avg_accuracy,
+                s.best_accuracy,
+                "%",
+                Color::Cyan,
+            ));
         }
 
         if let Some(w) = &self.warning {
             lines.push(Line::default());
-            lines.push(Line::from(Span::styled(
-                format!("  warning: {w}"),
-                Style::new().fg(Color::Yellow),
-            )));
+            lines.push(warning_line(w));
         }
 
         lines.push(Line::default());
-        lines.push(Line::from(Span::styled(
-            "  ←/→ level · esc/h back · q quit",
-            Style::new().fg(Color::DarkGray),
-        )));
+        lines.push(dim(HISTORY_FOOTER));
         frame.render_widget(Paragraph::new(lines), chunks[1]);
     }
 }
@@ -367,31 +347,89 @@ fn delta_line(label: &str, value: f64, avg: f64, best: f64, unit: &str) -> Line<
     ])
 }
 
-/// Scale each value into 10..=100 relative to the series' own min/max so the
-/// sparkline shows the metric's variation (a flat series renders mid-height).
-/// Returns bar heights for ratatui's `Sparkline`, used with `.max(100)`.
-fn normalized_bars(values: &[f64]) -> Vec<u64> {
+/// The footer hint shown on both the full and compact history views.
+const HISTORY_FOOTER: &str = "  ←/→ level · esc/h back · q quit";
+
+/// Smallest value range (WPM points / accuracy %) a sparkline spreads to full
+/// height; narrower ranges render near-flat so noise isn't exaggerated.
+const WPM_MIN_SPAN: f64 = 5.0;
+const ACC_MIN_SPAN: f64 = 3.0;
+
+/// A dim (DarkGray) single-line paragraph — used for the count line and footers.
+fn dim(text: impl Into<String>) -> Line<'static> {
+    Line::from(Span::styled(text.into(), Style::new().fg(Color::DarkGray)))
+}
+
+/// The yellow `warning: …` line shown on any view when history I/O had an issue.
+fn warning_line(w: &str) -> Line<'static> {
+    Line::from(Span::styled(
+        format!("  warning: {w}"),
+        Style::new().fg(Color::Yellow),
+    ))
+}
+
+/// `  level N · M session(s)`, or `… · no sessions yet` when there are none.
+fn level_count_text(level: u8, summary: Option<&LevelSummary>) -> String {
+    match summary {
+        Some(s) => format!("  level {level} · {} session(s)", s.count),
+        None => format!("  level {level} · no sessions yet"),
+    }
+}
+
+/// One history metric's numbers line: a bold coloured latest value followed by
+/// dim avg/best. `unit` is `""` for WPM or `"%"` for accuracy.
+fn metric_numbers(
+    label: &str,
+    latest: f64,
+    avg: f64,
+    best: f64,
+    unit: &str,
+    color: Color,
+) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            format!("  {label}  {latest:>4.0}{unit}"),
+            Style::new().fg(color).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(format!("  avg {avg:.0}{unit}  best {best:.0}{unit}")),
+    ])
+}
+
+/// Scale each value to a bar height in 10..=100 relative to the series' own
+/// range, but never amplifying a range narrower than `min_span` — so trivial
+/// session-to-session noise renders near-flat instead of as a full-height spike.
+/// The data band is centered within the span. Used with `Sparkline::max(100)`.
+/// `min_span` must be > 0. Empty input → empty.
+fn normalized_bars(values: &[f64], min_span: f64) -> Vec<u64> {
     if values.is_empty() {
         return Vec::new();
     }
     let (min, max) = values
         .iter()
         .fold((f64::MAX, f64::MIN), |(mn, mx), &v| (mn.min(v), mx.max(v)));
-    if (max - min).abs() < 1e-9 {
-        return vec![50; values.len()];
-    }
+    let actual = max - min;
+    let span = actual.max(min_span); // >= min_span > 0, so never divides by zero
+    let lo = min - (span - actual) / 2.0; // center the data within the span
     values
         .iter()
-        .map(|&v| (10.0 + (v - min) / (max - min) * 90.0).round() as u64)
+        .map(|&v| (10.0 + (v - lo) / span * 90.0).round() as u64)
         .collect()
 }
 
 /// Render one metric row: a fixed-width numbers column on the left and a
-/// one-row sparkline of the series filling the rest of the line.
-fn draw_metric_row(frame: &mut Frame, area: Rect, numbers: Line, values: &[f64], color: Color) {
+/// one-row sparkline of the series filling the rest of the line. `min_span` is
+/// the smallest value range the sparkline will spread to full height.
+fn draw_metric_row(
+    frame: &mut Frame,
+    area: Rect,
+    numbers: Line,
+    values: &[f64],
+    color: Color,
+    min_span: f64,
+) {
     let cols = Layout::horizontal([Constraint::Length(38), Constraint::Min(0)]).split(area);
     frame.render_widget(Paragraph::new(numbers), cols[0]);
-    let bars = normalized_bars(values);
+    let bars = normalized_bars(values, min_span);
     frame.render_widget(
         Sparkline::default()
             .data(&bars)

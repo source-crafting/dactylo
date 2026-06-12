@@ -17,6 +17,22 @@ pub struct Record {
     pub chars: usize,
 }
 
+impl Record {
+    /// Whether the numeric fields are in range. Parseable-but-out-of-range lines
+    /// (corrupt or hand-edited — e.g. a negative or non-finite WPM, an
+    /// impossible level) are treated as skipped on load so a garbage value can't
+    /// poison aggregates or overflow the display.
+    fn is_plausible(&self) -> bool {
+        (1..=5).contains(&self.level)
+            && self.wpm.is_finite()
+            && self.wpm >= 0.0
+            && self.raw_wpm.is_finite()
+            && self.raw_wpm >= 0.0
+            && (0.0..=100.0).contains(&self.accuracy)
+            && (0.0..=100.0).contains(&self.consistency)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct LevelSummary {
     pub count: usize,
@@ -92,23 +108,9 @@ impl History {
         writeln!(f, "{json}")
     }
 
-    /// All readable records; malformed lines are skipped.
-    pub fn load(&self) -> Vec<Record> {
-        let Ok(content) = fs::read_to_string(&self.path) else {
-            return Vec::new();
-        };
-        content
-            .lines()
-            .filter_map(|line| serde_json::from_str(line).ok())
-            .collect()
-    }
-
-    pub fn summary(&self, level: u8) -> Option<LevelSummary> {
-        summary_of(&self.load(), level)
-    }
-
-    /// Read the history file once, returning all parseable records plus the
-    /// count of non-empty lines that failed to parse.
+    /// Read the history file once, returning all readable records plus the count
+    /// of non-empty lines that were unusable — either unparseable or parseable
+    /// but out of range (see [`Record::is_plausible`]).
     pub fn load_with_skipped(&self) -> (Vec<Record>, usize) {
         let Ok(content) = fs::read_to_string(&self.path) else {
             return (Vec::new(), 0);
@@ -120,8 +122,8 @@ impl History {
                 continue;
             }
             match serde_json::from_str::<Record>(line) {
-                Ok(r) => records.push(r),
-                Err(_) => skipped += 1,
+                Ok(r) if r.is_plausible() => records.push(r),
+                _ => skipped += 1,
             }
         }
         (records, skipped)
@@ -153,7 +155,7 @@ mod tests {
         let h = History::new(dir.path().to_path_buf());
         h.append(&record(3, 50.0, 95.0)).unwrap();
         h.append(&record(3, 60.0, 97.0)).unwrap();
-        let recs = h.load();
+        let recs = h.load_with_skipped().0;
         assert_eq!(recs.len(), 2);
         assert_eq!(recs[1].wpm, 60.0);
         assert_eq!(recs[0].level, 3);
@@ -165,27 +167,16 @@ mod tests {
         let nested = dir.path().join("does-not-exist-yet");
         let h = History::new(nested);
         h.append(&record(1, 40.0, 90.0)).unwrap();
-        assert_eq!(h.load().len(), 1);
+        assert_eq!(h.load_with_skipped().0.len(), 1);
     }
 
     #[test]
     fn load_returns_empty_when_no_file() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(History::new(dir.path().to_path_buf()).load().is_empty());
-    }
-
-    #[test]
-    fn malformed_lines_are_skipped() {
-        let dir = tempfile::tempdir().unwrap();
-        let h = History::new(dir.path().to_path_buf());
-        h.append(&record(3, 50.0, 95.0)).unwrap();
-        let mut f = std::fs::OpenOptions::new()
-            .append(true)
-            .open(dir.path().join("history.jsonl"))
-            .unwrap();
-        writeln!(f, "this is not json").unwrap();
-        h.append(&record(3, 60.0, 97.0)).unwrap();
-        assert_eq!(h.load().len(), 2);
+        assert!(History::new(dir.path().to_path_buf())
+            .load_with_skipped()
+            .0
+            .is_empty());
     }
 
     #[test]
@@ -254,18 +245,27 @@ mod tests {
     }
 
     #[test]
-    fn summary_filters_by_level_and_computes_avg_and_best() {
+    fn implausible_records_are_skipped() {
         let dir = tempfile::tempdir().unwrap();
         let h = History::new(dir.path().to_path_buf());
         h.append(&record(3, 50.0, 95.0)).unwrap();
-        h.append(&record(3, 60.0, 97.0)).unwrap();
-        h.append(&record(2, 99.0, 99.0)).unwrap();
-        let s = h.summary(3).unwrap();
-        assert_eq!(s.count, 2);
-        assert!((s.avg_wpm - 55.0).abs() < 1e-9);
-        assert_eq!(s.best_wpm, 60.0);
-        assert!((s.avg_accuracy - 96.0).abs() < 1e-9);
-        assert_eq!(s.best_accuracy, 97.0);
-        assert!(h.summary(5).is_none());
+        // Parseable JSON but out-of-range values (corrupt / hand-edited).
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(dir.path().join("history.jsonl"))
+            .unwrap();
+        writeln!(
+            f,
+            r#"{{"ts":"x","duration":60,"level":3,"wpm":-1e308,"raw_wpm":0,"accuracy":50,"errors":0,"consistency":50,"chars":0}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"ts":"x","duration":60,"level":9,"wpm":50,"raw_wpm":50,"accuracy":150,"errors":0,"consistency":50,"chars":0}}"#
+        )
+        .unwrap();
+        let (records, skipped) = h.load_with_skipped();
+        assert_eq!(records.len(), 1); // only the valid record survives
+        assert_eq!(skipped, 2); // both out-of-range lines counted as corrupt
     }
 }
