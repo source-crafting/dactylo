@@ -5,6 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>dactylo — a typing trainer that lives in your terminal</title>
 <meta name="description" content="A fast terminal typing trainer built in Rust with ratatui. Timed sessions, five difficulty levels, live per-character feedback, and progression tracking against your own history.">
+
+<link rel="icon" type="image/svg+xml" href="dactylo-logo.svg">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="dactylo — a typing trainer that lives in your terminal">
+<meta property="og:description" content="A fast terminal typing trainer built in Rust with ratatui. Timed sessions, five difficulty levels, live per-character feedback, and progression tracking against your own history.">
+<meta property="og:url" content="https://source-crafting.github.io/dactylo/">
+<meta property="og:image" content="https://source-crafting.github.io/dactylo/dactylo-logo.svg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="dactylo — a typing trainer that lives in your terminal">
+<meta name="twitter:description" content="A fast terminal typing trainer built in Rust with ratatui.">
+<meta name="twitter:image" content="https://source-crafting.github.io/dactylo/dactylo-logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&display=swap" rel="stylesheet">
@@ -80,6 +92,7 @@
 
   /* ---------- hero ---------- */
   .hero{display:grid;grid-template-columns:1fr 1.05fr;gap:54px;align-items:center;padding:72px 0 64px;}
+  .hero-logo{display:block;width:100%;max-width:340px;height:auto;margin:0 0 22px;}
   .eyebrow{
     font-size:.8rem;letter-spacing:.22em;text-transform:uppercase;color:var(--green-dim);
     display:flex;gap:10px;align-items:center;margin-bottom:22px;
@@ -267,6 +280,7 @@
 <div class="wrap">
   <header class="hero">
     <div class="hero-copy">
+      <img class="hero-logo" src="dactylo-logo.svg" alt="dactylo" />
       <div class="eyebrow">Rust <span class="dot">·</span> ratatui <span class="dot">·</span> MIT</div>
       <h1>Type faster in the terminal <span class="accent">you already</span> live in<span class="caret">_</span></h1>
       <p class="lede">Pick a duration and a difficulty, type an endless stream of words against the clock with live per-character feedback, and watch your speed, accuracy, and consistency stack up against your own history.</p>
