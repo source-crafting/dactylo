@@ -155,7 +155,6 @@
   .ch.cur.pulse{animation:curblink 1.05s steps(1) infinite;}
   @keyframes curblink{50%{background:transparent;color:var(--fg-dim);}}
 
-  .countdown{font-size:4.5rem;font-weight:800;color:var(--yellow);text-align:center;width:100%;}
   .hint{text-align:center;font-size:.78rem;color:var(--muted);margin-top:4px;letter-spacing:.03em;}
 
   /* results inside terminal */
@@ -273,7 +272,7 @@
 
 <div class="wrap">
   <header class="hero">
-    <div class="hero-copy">
+    <div>
       <h1>Type faster in the terminal <span class="accent">you already</span> live in<span class="caret">_</span></h1>
       <p class="lede">Pick a duration and a difficulty, type an endless stream of words against the clock with live per-character feedback, and watch your speed, accuracy, and consistency stack up against your own history.</p>
 
@@ -427,7 +426,7 @@
             <tr><td>--level</td><td>1–5</td><td>3</td></tr>
           </tbody>
         </table>
-        <p class="usage-note">The setup screen appears on first launch only — <span class="kbd2">←</span> <span class="kbd2">→</span> change a value, <span class="kbd2">Tab</span> switches fields, <span class="kbd2">Enter</span> starts. Your choice is saved, so later launches drop you straight into a session. Mid-run, <span class="kbd2">Esc</span> cancels to a partial results screen (not saved) and <span class="kbd2">Ctrl-C</span> exits. On the results screen: <span class="kbd2">Enter</span> restarts, <span class="kbd2">s</span> reopens setup, <span class="kbd2">q</span> quits.</p>
+        <p class="usage-note">The setup screen appears on first launch only — <span class="kbd2">←</span> <span class="kbd2">→</span> change a value, <span class="kbd2">Tab</span> switches fields, <span class="kbd2">Enter</span> starts. Your choice is saved, so later launches drop you straight into a session. Mid-run, <span class="kbd2">Esc</span> cancels to a partial results screen (not saved) and <span class="kbd2">Ctrl-C</span> exits. On the results screen: <span class="kbd2">Enter</span> restarts, <span class="kbd2">s</span> reopens setup, <span class="kbd2">h</span> opens your per-level history, <span class="kbd2">q</span> or <span class="kbd2">Esc</span> quits.</p>
       </div>
     </div>
   </section>
@@ -514,7 +513,6 @@
   function renderState(pos, badAt){
     // badAt: index currently showing a wrong char (or -1)
     var html='<div class="viewport"><div class="scroller" id="scroller">';
-    var curLineHtml='', lastLine=0, lineBuf=[];
     // group chars by line
     var byLine={};
     for(var i=0;i<CHARS.length;i++){
@@ -558,15 +556,11 @@
 
   function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-  function renderCountdown(n){
-    area.innerHTML='<div class="countdown">'+n+'</div>';
-  }
-
   function renderResults(){
     area.innerHTML =
       '<div class="results">'
       + '<div class="results-grid">'
-      +   stat('WPM','72','net','up','▲ 4 vs best')
+      +   stat('WPM','72','net','up','▲ 4 vs avg')
       +   stat('Raw','78','','up','▲ 3')
       +   stat('Acc','97','%','down','▼ 1%')
       +   stat('Errors','6','','up','▲ best yet')
@@ -574,7 +568,7 @@
       +   stat('Level','3','','','your avg 68')
       + '</div>'
       + '<div class="results-foot"><span>level 3 · 30s · saved to ~/.dactylo</span>'
-      +   '<span><span class="kbd">Enter</span> restart &nbsp; <span class="kbd">s</span> settings &nbsp; <span class="kbd">q</span> quit</span></div>'
+      +   '<span><span class="kbd">Enter</span> restart &nbsp; <span class="kbd">s</span> settings &nbsp; <span class="kbd">h</span> history &nbsp; <span class="kbd">q</span> quit</span></div>'
       + '</div>';
   }
   function stat(lbl,val,unit,dir,delta){
