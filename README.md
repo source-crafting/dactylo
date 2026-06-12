@@ -1,3 +1,11 @@
+<p align="center">
+  <img src="docs/dactylo-logo.svg" alt="dactylo" width="420">
+</p>
+
+<p align="center">
+  <a href="https://source-crafting.github.io/dactylo/"><b>Live page&nbsp;→</b></a>
+</p>
+
 # dactylo
 
 [![CI](https://github.com/source-crafting/dactylo/actions/workflows/ci.yml/badge.svg)](https://github.com/source-crafting/dactylo/actions/workflows/ci.yml)
