@@ -463,9 +463,10 @@ fn render_cells(frame: &mut Frame, area: Rect, cells: [Paragraph<'static>; 3]) {
 }
 
 /// Compare `value` to your prior `avg` and `best` for a metric. Strictly beating
-/// `best` is a green `▲ best yet`; otherwise the delta is shown vs your average —
-/// `▲ +N vs avg` (green) when on the good side of average, `▼ -N vs avg` (red)
-/// otherwise. `higher_is_better` is false for errors (fewer is better).
+/// `best` is a green `▲ best yet`. Otherwise the delta is shown vs your average:
+/// `▲ +N vs avg` (green) on the good side; on the bad side, `▼ -N vs avg` in
+/// yellow when within 5% of the average ("just under") or red beyond that.
+/// `higher_is_better` is false for errors (fewer is better).
 fn metric_delta(
     value: f64,
     avg: f64,
@@ -481,18 +482,24 @@ fn metric_delta(
         return ("▲", "best yet".to_string(), Color::Green);
     }
     // Rounded signed delta vs average (i64 avoids a "-0" display).
-    let shown = (value - avg).round() as i64;
-    let good = if higher_is_better {
+    let diff = value - avg;
+    let shown = diff.round() as i64;
+    let on_good_side = if higher_is_better {
         shown >= 0
     } else {
         shown <= 0
     };
-    let (arrow, color) = if good {
-        ("▲", Color::Green)
+    if on_good_side {
+        return ("▲", format!("{shown:+} vs avg"), Color::Green);
+    }
+    // Bad side: within 5% of the average is "just under" (yellow), else red.
+    let shortfall = diff.abs() / avg.abs().max(f64::EPSILON);
+    let color = if shortfall <= 0.05 {
+        Color::Yellow
     } else {
-        ("▼", Color::Red)
+        Color::Red
     };
-    (arrow, format!("{shown:+} vs avg"), color)
+    ("▼", format!("{shown:+} vs avg"), color)
 }
 
 /// The footer hint shown on both the full and compact history views.
@@ -712,6 +719,25 @@ mod tests {
         assert!(s.in_history()); // q returns Quit without changing the view
         assert!(s.handle_key(KeyCode::Esc).is_none());
         assert!(!s.in_history());
+    }
+
+    #[test]
+    fn metric_delta_small_shortfall_is_yellow() {
+        // higher: 2 under avg 60 = 3.3% → yellow
+        let (a, t, c) = metric_delta(58.0, 60.0, 68.0, true);
+        assert_eq!(
+            (a, t.as_str(), c),
+            ("▼", "-2 vs avg", ratatui::style::Color::Yellow)
+        );
+        // higher: 10 under avg 60 = 16.7% → red
+        let (a, _t, c) = metric_delta(50.0, 60.0, 68.0, true);
+        assert_eq!((a, c), ("▼", ratatui::style::Color::Red));
+        // errors: 1 over avg 40 = 2.5% worse → yellow
+        let (a, t, c) = metric_delta(41.0, 40.0, 30.0, false);
+        assert_eq!(
+            (a, t.as_str(), c),
+            ("▼", "+1 vs avg", ratatui::style::Color::Yellow)
+        );
     }
 
     #[test]
