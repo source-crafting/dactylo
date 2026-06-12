@@ -14,8 +14,8 @@ Built in Rust with [ratatui](https://ratatui.rs).
 - **Five difficulty levels** — drawn from progressively rarer/longer words.
 - **Live feedback** — correct characters turn green, mistakes show the expected
   character on a red background, and the cursor marks your position.
-- **Focused view** — a centered, fixed-width column shows three lines at a time;
-  the cursor starts on the top line, then stays on the middle line as text scrolls.
+- **Focused view** — a fixed-width column shows three lines at a time; the cursor
+  starts on the top line, then stays on the middle line as text scrolls.
 - **Backspace to correct** — fix mistakes as you go (errors still count toward
   accuracy).
 - **End-of-session stats** — WPM, raw WPM, accuracy, errors, and consistency.
