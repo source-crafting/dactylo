@@ -63,19 +63,21 @@ If you pass one flag, the other takes its default.
 
 ### During a session
 
+- A slim header shows `dactylo` and `level N · m:ss` (the countdown) with a faint
+  live WPM/accuracy readout; the text sits below a dotted rule.
 - The timer starts on your **first keystroke**, not when the screen appears.
-- **Backspace** corrects the previous character.
+- **Backspace** corrects the previous character; the cursor is the highlighted box.
 - **Esc** cancels the run and jumps to the results screen with your partial
   stats — a cancelled run is **not** saved to history.
 - **Ctrl-C** exits dactylo immediately.
 
 ### Results screen
 
-After time runs out — or after you cancel with Esc — you'll see your session
-stats: WPM, raw WPM, accuracy, errors, consistency, and how they compare to your
-previous sessions at that level (▲/▼ vs. your average, plus your best). Press
-**Enter** to restart with the same settings, **s** to change settings, **h** to
-open the history view, or `q`/Esc to quit.
+After time runs out — or after you cancel with Esc — you'll see a 2×3 grid:
+**WPM**, **RAW**, **ACC** on top and **ERRORS**, **CONSIST**, **LEVEL** below,
+each with a delta vs your best at that level (`best yet` on a new record), and
+your level average under **LEVEL**. Press **Enter** to restart, **s** for
+settings, **h** for the history view, or `q`/Esc to quit.
 
 ### History view
 
