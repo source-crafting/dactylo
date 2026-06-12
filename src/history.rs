@@ -17,6 +17,22 @@ pub struct Record {
     pub chars: usize,
 }
 
+impl Record {
+    /// Whether the numeric fields are in range. Parseable-but-out-of-range lines
+    /// (corrupt or hand-edited — e.g. a negative or non-finite WPM, an
+    /// impossible level) are treated as skipped on load so a garbage value can't
+    /// poison aggregates or overflow the display.
+    fn is_plausible(&self) -> bool {
+        (1..=5).contains(&self.level)
+            && self.wpm.is_finite()
+            && self.wpm >= 0.0
+            && self.raw_wpm.is_finite()
+            && self.raw_wpm >= 0.0
+            && (0.0..=100.0).contains(&self.accuracy)
+            && (0.0..=100.0).contains(&self.consistency)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct LevelSummary {
     pub count: usize,
@@ -26,8 +42,45 @@ pub struct LevelSummary {
     pub best_accuracy: f64,
 }
 
+/// One session's chartable metrics, in chronological order within a level.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SessionPoint {
+    pub wpm: f64,
+    pub accuracy: f64,
+}
+
 pub struct History {
     path: PathBuf,
+}
+
+/// Aggregate the records for `level` into a `LevelSummary`, or `None` if there
+/// are no sessions at that level.
+pub fn summary_of(records: &[Record], level: u8) -> Option<LevelSummary> {
+    let recs: Vec<&Record> = records.iter().filter(|r| r.level == level).collect();
+    if recs.is_empty() {
+        return None;
+    }
+    let n = recs.len() as f64;
+    Some(LevelSummary {
+        count: recs.len(),
+        avg_wpm: recs.iter().map(|r| r.wpm).sum::<f64>() / n,
+        best_wpm: recs.iter().map(|r| r.wpm).fold(f64::MIN, f64::max),
+        avg_accuracy: recs.iter().map(|r| r.accuracy).sum::<f64>() / n,
+        best_accuracy: recs.iter().map(|r| r.accuracy).fold(f64::MIN, f64::max),
+    })
+}
+
+/// The chartable (wpm, accuracy) series for `level`, in file (chronological)
+/// order.
+pub fn series_of(records: &[Record], level: u8) -> Vec<SessionPoint> {
+    records
+        .iter()
+        .filter(|r| r.level == level)
+        .map(|r| SessionPoint {
+            wpm: r.wpm,
+            accuracy: r.accuracy,
+        })
+        .collect()
 }
 
 impl History {
@@ -55,45 +108,25 @@ impl History {
         writeln!(f, "{json}")
     }
 
-    /// All readable records; malformed lines are skipped.
-    pub fn load(&self) -> Vec<Record> {
+    /// Read the history file once, returning all readable records plus the count
+    /// of non-empty lines that were unusable — either unparseable or parseable
+    /// but out of range (see [`Record::is_plausible`]).
+    pub fn load_with_skipped(&self) -> (Vec<Record>, usize) {
         let Ok(content) = fs::read_to_string(&self.path) else {
-            return Vec::new();
+            return (Vec::new(), 0);
         };
-        content
-            .lines()
-            .filter_map(|line| serde_json::from_str(line).ok())
-            .collect()
-    }
-
-    /// Number of non-empty lines in the history file that fail to parse.
-    pub fn skipped_lines(&self) -> usize {
-        let Ok(content) = fs::read_to_string(&self.path) else {
-            return 0;
-        };
-        content
-            .lines()
-            .filter(|l| !l.trim().is_empty() && serde_json::from_str::<Record>(l).is_err())
-            .count()
-    }
-
-    pub fn summary(&self, level: u8) -> Option<LevelSummary> {
-        let recs: Vec<Record> = self
-            .load()
-            .into_iter()
-            .filter(|r| r.level == level)
-            .collect();
-        if recs.is_empty() {
-            return None;
+        let mut records = Vec::new();
+        let mut skipped = 0;
+        for line in content.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<Record>(line) {
+                Ok(r) if r.is_plausible() => records.push(r),
+                _ => skipped += 1,
+            }
         }
-        let n = recs.len() as f64;
-        Some(LevelSummary {
-            count: recs.len(),
-            avg_wpm: recs.iter().map(|r| r.wpm).sum::<f64>() / n,
-            best_wpm: recs.iter().map(|r| r.wpm).fold(f64::MIN, f64::max),
-            avg_accuracy: recs.iter().map(|r| r.accuracy).sum::<f64>() / n,
-            best_accuracy: recs.iter().map(|r| r.accuracy).fold(f64::MIN, f64::max),
-        })
+        (records, skipped)
     }
 }
 
@@ -122,7 +155,7 @@ mod tests {
         let h = History::new(dir.path().to_path_buf());
         h.append(&record(3, 50.0, 95.0)).unwrap();
         h.append(&record(3, 60.0, 97.0)).unwrap();
-        let recs = h.load();
+        let recs = h.load_with_skipped().0;
         assert_eq!(recs.len(), 2);
         assert_eq!(recs[1].wpm, 60.0);
         assert_eq!(recs[0].level, 3);
@@ -134,56 +167,105 @@ mod tests {
         let nested = dir.path().join("does-not-exist-yet");
         let h = History::new(nested);
         h.append(&record(1, 40.0, 90.0)).unwrap();
-        assert_eq!(h.load().len(), 1);
+        assert_eq!(h.load_with_skipped().0.len(), 1);
     }
 
     #[test]
     fn load_returns_empty_when_no_file() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(History::new(dir.path().to_path_buf()).load().is_empty());
+        assert!(History::new(dir.path().to_path_buf())
+            .load_with_skipped()
+            .0
+            .is_empty());
     }
 
     #[test]
-    fn malformed_lines_are_skipped() {
-        let dir = tempfile::tempdir().unwrap();
-        let h = History::new(dir.path().to_path_buf());
-        h.append(&record(3, 50.0, 95.0)).unwrap();
-        let mut f = std::fs::OpenOptions::new()
-            .append(true)
-            .open(dir.path().join("history.jsonl"))
-            .unwrap();
-        writeln!(f, "this is not json").unwrap();
-        h.append(&record(3, 60.0, 97.0)).unwrap();
-        assert_eq!(h.load().len(), 2);
-    }
-
-    #[test]
-    fn skipped_lines_counts_malformed() {
-        let dir = tempfile::tempdir().unwrap();
-        let h = History::new(dir.path().to_path_buf());
-        assert_eq!(h.skipped_lines(), 0);
-        h.append(&record(3, 50.0, 95.0)).unwrap();
-        let mut f = std::fs::OpenOptions::new()
-            .append(true)
-            .open(dir.path().join("history.jsonl"))
-            .unwrap();
-        writeln!(f, "this is not json").unwrap();
-        assert_eq!(h.skipped_lines(), 1);
-    }
-
-    #[test]
-    fn summary_filters_by_level_and_computes_avg_and_best() {
-        let dir = tempfile::tempdir().unwrap();
-        let h = History::new(dir.path().to_path_buf());
-        h.append(&record(3, 50.0, 95.0)).unwrap();
-        h.append(&record(3, 60.0, 97.0)).unwrap();
-        h.append(&record(2, 99.0, 99.0)).unwrap();
-        let s = h.summary(3).unwrap();
+    fn summary_of_filters_by_level_and_aggregates() {
+        let recs = vec![
+            record(3, 50.0, 95.0),
+            record(3, 60.0, 97.0),
+            record(2, 99.0, 99.0),
+        ];
+        let s = super::summary_of(&recs, 3).unwrap();
         assert_eq!(s.count, 2);
         assert!((s.avg_wpm - 55.0).abs() < 1e-9);
         assert_eq!(s.best_wpm, 60.0);
         assert!((s.avg_accuracy - 96.0).abs() < 1e-9);
         assert_eq!(s.best_accuracy, 97.0);
-        assert!(h.summary(5).is_none());
+    }
+
+    #[test]
+    fn summary_of_empty_level_is_none() {
+        let recs = vec![record(1, 40.0, 90.0)];
+        assert!(super::summary_of(&recs, 5).is_none());
+    }
+
+    #[test]
+    fn series_of_keeps_order_and_filters_level() {
+        let recs = vec![
+            record(3, 50.0, 95.0),
+            record(2, 10.0, 80.0),
+            record(3, 60.0, 97.0),
+        ];
+        let series = super::series_of(&recs, 3);
+        assert_eq!(series.len(), 2);
+        assert_eq!(series[0].wpm, 50.0);
+        assert_eq!(series[1].wpm, 60.0);
+        assert_eq!(series[1].accuracy, 97.0);
+    }
+
+    #[test]
+    fn series_of_empty_when_no_sessions() {
+        assert!(super::series_of(&[], 3).is_empty());
+    }
+
+    #[test]
+    fn load_with_skipped_returns_records_and_corrupt_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let h = History::new(dir.path().to_path_buf());
+        h.append(&record(3, 50.0, 95.0)).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(dir.path().join("history.jsonl"))
+            .unwrap();
+        use std::io::Write;
+        writeln!(f, "not json").unwrap();
+        h.append(&record(3, 60.0, 97.0)).unwrap();
+        let (records, skipped) = h.load_with_skipped();
+        assert_eq!(records.len(), 2);
+        assert_eq!(skipped, 1);
+    }
+
+    #[test]
+    fn load_with_skipped_empty_when_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let (records, skipped) = History::new(dir.path().to_path_buf()).load_with_skipped();
+        assert!(records.is_empty());
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn implausible_records_are_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let h = History::new(dir.path().to_path_buf());
+        h.append(&record(3, 50.0, 95.0)).unwrap();
+        // Parseable JSON but out-of-range values (corrupt / hand-edited).
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(dir.path().join("history.jsonl"))
+            .unwrap();
+        writeln!(
+            f,
+            r#"{{"ts":"x","duration":60,"level":3,"wpm":-1e308,"raw_wpm":0,"accuracy":50,"errors":0,"consistency":50,"chars":0}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"ts":"x","duration":60,"level":9,"wpm":50,"raw_wpm":50,"accuracy":150,"errors":0,"consistency":50,"chars":0}}"#
+        )
+        .unwrap();
+        let (records, skipped) = h.load_with_skipped();
+        assert_eq!(records.len(), 1); // only the valid record survives
+        assert_eq!(skipped, 2); // both out-of-range lines counted as corrupt
     }
 }

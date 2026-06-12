@@ -71,9 +71,20 @@ If you pass one flag, the other takes its default.
 
 ### Results screen
 
-After time runs out — or after you cancel with Esc — you'll see your stats and
-how they compare to past sessions at the same level. Press **Enter** to restart
-with the same settings, **s** to change settings, or `q`/Esc to quit.
+After time runs out — or after you cancel with Esc — you'll see your session
+stats: WPM, raw WPM, accuracy, errors, consistency, and how they compare to your
+previous sessions at that level (▲/▼ vs. your average, plus your best). Press
+**Enter** to restart with the same settings, **s** to change settings, **h** to
+open the history view, or `q`/Esc to quit.
+
+### History view
+
+Press **h** on the results screen for a per-level dashboard: tabs for levels 1–5
+(the level you just played is marked `*`) and, for the selected level, a **WPM**
+row and an **accuracy** row, each showing the latest/average/best plus a
+sparkline of that metric across the level's sessions. Use **←/→** to switch the
+level tab. Press **Esc** (or **h**) to return to the results screen, or `q` to
+quit. (On a short terminal the sparklines are replaced by a text summary.)
 
 ## Difficulty levels
 
