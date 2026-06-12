@@ -206,7 +206,7 @@
 
   /* usage */
   .usage-grid{display:grid;grid-template-columns:1fr 1fr;gap:36px;align-items:center;}
-  .codeblock{background:#161819;border:1px solid var(--line);border-radius:10px;padding:20px 22px;font-size:.92rem;line-height:2;overflow-x:auto;}
+  .codeblock{background:#161819;border:1px solid var(--line);border-radius:10px;padding:20px 22px;font-size:.92rem;line-height:2;white-space:pre-wrap;overflow-wrap:anywhere;}
   .codeblock .cmt{color:var(--muted);}
   .codeblock .g{color:var(--green);}
   .codeblock .y{color:var(--yellow);}
@@ -278,7 +278,7 @@
 
       <div class="cmd-row">
         <div class="cmd">
-          <span class="sigil">$</span><code id="install-cmd">cargo build --release</code>
+          <span class="sigil">$</span><code id="install-cmd">cargo install --git https://github.com/source-crafting/dactylo</code>
           <button class="copy-btn" id="copyBtn">copy</button>
         </div>
         <a class="cta" href="https://github.com/source-crafting/dactylo" target="_blank" rel="noopener">View source →</a>
@@ -294,7 +294,7 @@
     <div class="term" id="demo" aria-hidden="true">
       <div class="term-bar">
         <span class="tdot r"></span><span class="tdot y"></span><span class="tdot g"></span>
-        <span class="term-title"><span class="path">~/.local/bin/</span>dactylo --time 30 --level 3</span>
+        <span class="term-title"><span class="path">~/.cargo/bin/</span>dactylo --time 30 --level 3</span>
       </div>
       <div class="term-body">
         <div class="tui-head">
@@ -403,21 +403,18 @@
   <section id="usage">
     <div class="sec-head">
       <div class="sec-eyebrow">// getting started</div>
-      <h2>Build it, then just run it</h2>
-      <p>All you need is a Rust toolchain. Build the release binary, drop it on your <span style="color:var(--yellow)">PATH</span>, and type <span style="color:var(--green)">dactylo</span>.</p>
+      <h2>Install it, then just run it</h2>
+      <p>All you need is a Rust toolchain. One <span style="color:var(--green)">cargo install</span> fetches, builds, and drops <span style="color:var(--green)">dactylo</span> on your <span style="color:var(--yellow)">PATH</span> — then just run it.</p>
     </div>
     <div class="usage-grid">
-      <div class="codeblock">
-<span class="cmt"># build + install</span>
-<span class="g">$</span> cargo build --release
-<span class="g">$</span> cp target/release/<span class="a">dactylo</span> ~/.local/bin/
+      <div class="codeblock"><span class="cmt"># install (needs a Rust toolchain)</span>
+<span class="g">$</span> cargo install <span class="y">--git</span> https://github.com/source-crafting/dactylo
 
 <span class="cmt"># first run sets up; later runs jump straight in</span>
 <span class="g">$</span> <span class="a">dactylo</span>
 
 <span class="cmt"># or set duration + level explicitly</span>
-<span class="g">$</span> <span class="a">dactylo</span> <span class="y">--time</span> 60 <span class="y">--level</span> 3
-      </div>
+<span class="g">$</span> <span class="a">dactylo</span> <span class="y">--time</span> 60 <span class="y">--level</span> 3</div>
       <div>
         <table class="flagtable">
           <thead><tr><th>Flag</th><th>Range</th><th>Default</th></tr></thead>
@@ -437,7 +434,7 @@
     <h2>Open a terminal. <span class="accent">Beat your best.</span></h2>
     <p>It's a couple hundred kilobytes of Rust and a word list. Build it once and the only thing left to improve is you.</p>
     <div class="cmd" style="display:inline-flex;">
-      <span class="sigil">$</span><code>cargo build --release &amp;&amp; dactylo</code>
+      <span class="sigil">$</span><code>cargo install --git https://github.com/source-crafting/dactylo &amp;&amp; dactylo</code>
       <button class="copy-btn" id="copyBtn2">copy</button>
     </div>
   </div>
@@ -469,8 +466,8 @@
       });
     });
   }
-  wireCopy('copyBtn','cargo build --release');
-  wireCopy('copyBtn2','cargo build --release && dactylo');
+  wireCopy('copyBtn','cargo install --git https://github.com/source-crafting/dactylo');
+  wireCopy('copyBtn2','cargo install --git https://github.com/source-crafting/dactylo && dactylo');
 
   // ---- animated TUI demo ----
   var area = document.getElementById('typearea');

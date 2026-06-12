@@ -35,11 +35,14 @@ Built in Rust with [ratatui](https://ratatui.rs).
 Requires a Rust toolchain ([rustup](https://rustup.rs)).
 
 ```bash
-cargo build --release
+cargo install --git https://github.com/source-crafting/dactylo
 ```
 
-The binary is produced at `target/release/dactylo`. Copy it somewhere on your
-`PATH` (e.g. `cp target/release/dactylo ~/.local/bin/`) or run it in place.
+This builds dactylo and installs the binary to `~/.cargo/bin/` (already on your
+`PATH` with a standard rustup setup), so you can run `dactylo` from anywhere.
+
+To build from a local checkout instead, run `cargo build --release` in the repo;
+the binary is produced at `target/release/dactylo`.
 
 ## Usage
 
