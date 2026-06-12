@@ -92,12 +92,6 @@
 
   /* ---------- hero ---------- */
   .hero{display:grid;grid-template-columns:1fr 1.05fr;gap:54px;align-items:center;padding:72px 0 64px;}
-  .hero-logo{display:block;width:100%;max-width:340px;height:auto;margin:0 0 22px;}
-  .eyebrow{
-    font-size:.8rem;letter-spacing:.22em;text-transform:uppercase;color:var(--green-dim);
-    display:flex;gap:10px;align-items:center;margin-bottom:22px;
-  }
-  .eyebrow .dot{color:var(--muted);}
   h1{
     font-size:clamp(2.1rem,4.4vw,3.25rem);line-height:1.08;margin:0 0 22px;
     font-weight:800;letter-spacing:-.015em;
@@ -280,8 +274,6 @@
 <div class="wrap">
   <header class="hero">
     <div class="hero-copy">
-      <img class="hero-logo" src="dactylo-logo.svg" alt="dactylo" />
-      <div class="eyebrow">Rust <span class="dot">·</span> ratatui <span class="dot">·</span> MIT</div>
       <h1>Type faster in the terminal <span class="accent">you already</span> live in<span class="caret">_</span></h1>
       <p class="lede">Pick a duration and a difficulty, type an endless stream of words against the clock with live per-character feedback, and watch your speed, accuracy, and consistency stack up against your own history.</p>
 
