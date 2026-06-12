@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/dactylo-logo.svg" alt="dactylo" width="420">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/dactylo-logo.svg">
+    <img src="docs/dactylo-logo-light.svg" alt="dactylo" width="420">
+  </picture>
 </p>
 
 <p align="center">
