@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dactylo — a typing trainer that lives in your terminal</title>
+<meta name="description" content="A fast terminal typing trainer built in Rust with ratatui. Timed sessions, five difficulty levels, live per-character feedback, and progression tracking against your own history.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#1d2021;
+    --bg-soft:#282828;
+    --panel:#32302f;
+    --panel-line:#3c3836;
+    --line:#504945;
+    --fg:#ebdbb2;
+    --fg-dim:#a89984;
+    --muted:#7c6f64;
+    --green:#b8bb26;
+    --green-dim:#98971a;
+    --red:#fb4934;
+    --yellow:#fabd2f;
+    --aqua:#8ec07c;
+    --orange:#fe8019;
+    --blue:#83a598;
+    --mono:'JetBrains Mono',ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace;
+    --maxw:1080px;
+  }
+
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--fg);
+    font-family:var(--mono);
+    font-size:16px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  body::before{
+    content:"";
+    position:fixed;inset:0;
+    pointer-events:none;
+    background:
+      radial-gradient(900px 500px at 78% -8%, rgba(184,187,38,.07), transparent 60%),
+      radial-gradient(700px 500px at 0% 100%, rgba(131,165,152,.06), transparent 55%);
+    z-index:0;
+  }
+  a{color:var(--aqua);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+  ::selection{background:var(--green);color:var(--bg);}
+
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px;position:relative;z-index:1;}
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:20px 0;border-bottom:1px solid var(--panel-line);
+  }
+  .brand{display:flex;align-items:center;gap:11px;font-weight:800;font-size:1.05rem;letter-spacing:.02em;}
+  .brand .prompt{color:var(--green);}
+  .brand .blink{
+    display:inline-block;width:.6ch;height:1.05em;background:var(--yellow);
+    transform:translateY(.16em);animation:blink 1.05s steps(1) infinite;
+  }
+  @keyframes blink{50%{opacity:0;}}
+  .topnav{display:flex;align-items:center;gap:26px;font-size:.9rem;color:var(--fg-dim);}
+  .topnav a{color:var(--fg-dim);}
+  .topnav a:hover{color:var(--fg);text-decoration:none;}
+  .gh-pill{
+    border:1px solid var(--line);border-radius:6px;padding:7px 13px;color:var(--fg)!important;
+    display:inline-flex;align-items:center;gap:8px;background:var(--bg-soft);
+  }
+  .gh-pill:hover{border-color:var(--green);text-decoration:none;}
+  .gh-pill .star{color:var(--yellow);}
+
+  /* ---------- hero ---------- */
+  .hero{display:grid;grid-template-columns:1fr 1.05fr;gap:54px;align-items:center;padding:72px 0 64px;}
+  .eyebrow{
+    font-size:.8rem;letter-spacing:.22em;text-transform:uppercase;color:var(--green-dim);
+    display:flex;gap:10px;align-items:center;margin-bottom:22px;
+  }
+  .eyebrow .dot{color:var(--muted);}
+  h1{
+    font-size:clamp(2.1rem,4.4vw,3.25rem);line-height:1.08;margin:0 0 22px;
+    font-weight:800;letter-spacing:-.015em;
+  }
+  h1 .accent{color:var(--green);}
+  h1 .caret{color:var(--yellow);}
+  .lede{font-size:1.06rem;color:var(--fg-dim);max-width:46ch;margin:0 0 30px;}
+
+  .cmd-row{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-bottom:26px;}
+  .cmd{
+    display:inline-flex;align-items:center;gap:12px;background:#161819;
+    border:1px solid var(--line);border-radius:8px;padding:13px 15px;font-size:.92rem;
+  }
+  .cmd .sigil{color:var(--green);}
+  .cmd code{color:var(--fg);}
+  .copy-btn{
+    margin-left:4px;border:1px solid var(--line);background:transparent;color:var(--fg-dim);
+    font-family:var(--mono);font-size:.74rem;border-radius:5px;padding:4px 8px;cursor:pointer;
+    transition:.15s;letter-spacing:.04em;
+  }
+  .copy-btn:hover{color:var(--bg);background:var(--green);border-color:var(--green);}
+  .cta{
+    display:inline-flex;align-items:center;gap:9px;background:var(--green);color:#1d2021;
+    font-weight:700;border-radius:8px;padding:13px 22px;font-size:.95rem;border:1px solid var(--green);
+  }
+  .cta:hover{background:var(--yellow);border-color:var(--yellow);text-decoration:none;}
+
+  .meta-line{display:flex;gap:20px;flex-wrap:wrap;font-size:.82rem;color:var(--muted);margin-top:4px;}
+  .meta-line b{color:var(--fg-dim);font-weight:500;}
+
+  /* ---------- terminal demo ---------- */
+  .term{
+    background:#191b1c;border:1px solid var(--line);border-radius:11px;overflow:hidden;
+    box-shadow:0 30px 70px -30px rgba(0,0,0,.7),0 0 0 1px rgba(0,0,0,.3);
+  }
+  .term-bar{
+    display:flex;align-items:center;gap:8px;padding:11px 14px;background:#101213;border-bottom:1px solid #2a2c2d;
+  }
+  .term-bar .tdot{width:11px;height:11px;border-radius:50%;}
+  .tdot.r{background:#fb4934;}.tdot.y{background:#fabd2f;}.tdot.g{background:#b8bb26;}
+  .term-title{margin-left:8px;font-size:.78rem;color:var(--muted);}
+  .term-title .path{color:var(--fg-dim);}
+  .term-body{padding:24px 22px 26px;min-height:340px;display:flex;flex-direction:column;}
+
+  .tui-head{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px dashed #3c3836;padding-bottom:10px;margin-bottom:6px;}
+  .tui-title{color:var(--green);font-weight:700;letter-spacing:.04em;}
+  .tui-meta{font-size:.82rem;color:var(--fg-dim);}
+  .tui-meta b{color:var(--yellow);font-weight:700;}
+
+  .typearea{flex:1;display:flex;align-items:center;justify-content:center;padding:18px 0;}
+  .viewport{
+    width:38ch;height:calc(1.85em * 3);overflow:hidden;position:relative;
+    font-size:1.18rem;line-height:1.85;
+  }
+  .scroller{position:absolute;left:0;top:0;width:100%;transition:transform .18s ease;}
+  .tline{height:1.85em;white-space:pre;text-align:left;}
+  .ch{color:var(--muted);}
+  .ch.ok{color:var(--green);}
+  .ch.bad{color:var(--bg);background:var(--red);border-radius:2px;}
+  .ch.cur{background:var(--yellow);color:var(--bg);border-radius:2px;}
+  .ch.cur.pulse{animation:curblink 1.05s steps(1) infinite;}
+  @keyframes curblink{50%{background:transparent;color:var(--fg-dim);}}
+
+  .countdown{font-size:4.5rem;font-weight:800;color:var(--yellow);text-align:center;width:100%;}
+  .hint{text-align:center;font-size:.78rem;color:var(--muted);margin-top:4px;letter-spacing:.03em;}
+
+  /* results inside terminal */
+  .results{width:100%;}
+  .results-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px 22px;margin:6px 0 14px;}
+  .stat .lbl{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);}
+  .stat .val{font-size:1.7rem;font-weight:800;line-height:1.2;}
+  .stat .val .u{font-size:.8rem;color:var(--fg-dim);font-weight:500;margin-left:3px;}
+  .stat .delta{font-size:.76rem;}
+  .delta.up{color:var(--green);}.delta.down{color:var(--red);}
+  .results-foot{border-top:1px dashed #3c3836;padding-top:11px;font-size:.8rem;color:var(--fg-dim);display:flex;justify-content:space-between;}
+  .kbd{background:#101213;border:1px solid var(--line);border-radius:4px;padding:1px 7px;font-size:.78rem;color:var(--yellow);}
+
+  /* ---------- sections ---------- */
+  section{padding:70px 0;border-top:1px solid var(--panel-line);}
+  .sec-head{margin-bottom:40px;}
+  .sec-eyebrow{font-size:.78rem;letter-spacing:.2em;text-transform:uppercase;color:var(--green-dim);margin-bottom:12px;}
+  .sec-head h2{font-size:clamp(1.5rem,3vw,2.05rem);margin:0;font-weight:800;letter-spacing:-.01em;}
+  .sec-head p{color:var(--fg-dim);max-width:60ch;margin:14px 0 0;}
+
+  .features{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;}
+  .fcard{
+    background:var(--panel);border:1px solid var(--panel-line);border-radius:10px;padding:22px 20px;
+    transition:.18s;position:relative;
+  }
+  .fcard:hover{border-color:var(--green-dim);transform:translateY(-2px);}
+  .fcard .fsig{color:var(--green);font-size:.82rem;margin-bottom:12px;font-weight:700;}
+  .fcard h3{margin:0 0 8px;font-size:1.02rem;font-weight:700;}
+  .fcard p{margin:0;font-size:.88rem;color:var(--fg-dim);line-height:1.55;}
+
+  /* levels */
+  .levels-wrap{display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:start;}
+  .ltable{width:100%;border-collapse:collapse;font-size:.92rem;}
+  .ltable th{text-align:left;color:var(--muted);font-weight:500;font-size:.74rem;letter-spacing:.1em;text-transform:uppercase;padding:0 14px 12px 0;border-bottom:1px solid var(--line);}
+  .ltable td{padding:13px 14px 13px 0;border-bottom:1px solid var(--panel-line);color:var(--fg-dim);}
+  .ltable tr:last-child td{border-bottom:none;}
+  .lvl-tag{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:5px;background:var(--bg-soft);border:1px solid var(--line);color:var(--yellow);font-weight:700;font-size:.85rem;}
+  .ltable td.pool{color:var(--fg);}
+  .levels-aside{background:#161819;border:1px solid var(--line);border-radius:10px;padding:22px;font-size:.86rem;color:var(--fg-dim);line-height:1.6;}
+  .levels-aside .k{color:var(--green);}
+  .levels-aside p{margin:0 0 14px;}
+  .levels-aside p:last-child{margin:0;}
+
+  /* stats strip */
+  .stats-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--panel-line);border:1px solid var(--panel-line);border-radius:10px;overflow:hidden;}
+  .scell{background:var(--bg);padding:22px 18px;}
+  .scell .sk{color:var(--green);font-weight:700;font-size:.95rem;margin-bottom:7px;}
+  .scell .sd{font-size:.82rem;color:var(--fg-dim);line-height:1.5;}
+
+  /* usage */
+  .usage-grid{display:grid;grid-template-columns:1fr 1fr;gap:36px;align-items:center;}
+  .codeblock{background:#161819;border:1px solid var(--line);border-radius:10px;padding:20px 22px;font-size:.92rem;line-height:2;overflow-x:auto;}
+  .codeblock .cmt{color:var(--muted);}
+  .codeblock .g{color:var(--green);}
+  .codeblock .y{color:var(--yellow);}
+  .codeblock .a{color:var(--aqua);}
+  .flagtable{width:100%;border-collapse:collapse;font-size:.9rem;margin-top:2px;}
+  .flagtable th{text-align:left;color:var(--muted);font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;padding:0 14px 10px 0;border-bottom:1px solid var(--line);font-weight:500;}
+  .flagtable td{padding:11px 14px 11px 0;border-bottom:1px solid var(--panel-line);color:var(--fg-dim);}
+  .flagtable td:first-child{color:var(--yellow);}
+  .flagtable tr:last-child td{border-bottom:none;}
+  .usage-note{font-size:.84rem;color:var(--fg-dim);margin-top:18px;}
+  .usage-note .kbd2{background:#101213;border:1px solid var(--line);border-radius:4px;padding:1px 6px;color:var(--yellow);font-size:.82rem;}
+
+  /* footer cta */
+  .footcta{text-align:center;padding:80px 0;border-top:1px solid var(--panel-line);}
+  .footcta h2{font-size:clamp(1.6rem,3.4vw,2.3rem);margin:0 0 14px;font-weight:800;}
+  .footcta h2 .accent{color:var(--green);}
+  .footcta p{color:var(--fg-dim);margin:0 auto 30px;max-width:48ch;}
+  .footcta .cmd{margin:0 auto;}
+
+  footer{border-top:1px solid var(--panel-line);padding:30px 0 50px;}
+  .foot-inner{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;font-size:.84rem;color:var(--muted);}
+  .foot-inner a{color:var(--fg-dim);}
+  .foot-links{display:flex;gap:22px;}
+
+  /* responsive */
+  @media (max-width:900px){
+    .hero{grid-template-columns:1fr;gap:40px;padding:48px 0;}
+    .features{grid-template-columns:1fr 1fr;}
+    .levels-wrap{grid-template-columns:1fr;gap:28px;}
+    .stats-strip{grid-template-columns:1fr 1fr 1fr;}
+    .usage-grid{grid-template-columns:1fr;gap:24px;}
+  }
+  @media (max-width:620px){
+    .topnav .nlink{display:none;}
+    .features{grid-template-columns:1fr;}
+    .stats-strip{grid-template-columns:1fr;}
+    .results-grid{grid-template-columns:repeat(3,1fr);gap:12px;}
+    .viewport{width:30ch;font-size:1rem;}
+    h1{font-size:2rem;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .scroller{transition:none;}
+    .ch.cur.pulse{animation:none;}
+    .brand .blink{animation:none;}
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand"><span class="prompt">~/</span>dactylo<span class="blink"></span></div>
+    <nav class="topnav">
+      <a class="nlink" href="#features">features</a>
+      <a class="nlink" href="#levels">levels</a>
+      <a class="nlink" href="#usage">usage</a>
+      <a class="gh-pill" href="https://github.com/source-crafting/dactylo" target="_blank" rel="noopener">
+        <span class="star">★</span> GitHub
+      </a>
+    </nav>
+  </div>
+</div>
+
+<div class="wrap">
+  <header class="hero">
+    <div class="hero-copy">
+      <div class="eyebrow">Rust <span class="dot">·</span> ratatui <span class="dot">·</span> MIT</div>
+      <h1>Type faster in the terminal <span class="accent">you already</span> live in<span class="caret">_</span></h1>
+      <p class="lede">Pick a duration and a difficulty, type an endless stream of words against the clock with live per-character feedback, and watch your speed, accuracy, and consistency stack up against your own history.</p>
+
+      <div class="cmd-row">
+        <div class="cmd">
+          <span class="sigil">$</span><code id="install-cmd">cargo build --release</code>
+          <button class="copy-btn" id="copyBtn">copy</button>
+        </div>
+        <a class="cta" href="https://github.com/source-crafting/dactylo" target="_blank" rel="noopener">View source →</a>
+      </div>
+
+      <div class="meta-line">
+        <span><b>~/.dactylo/</b> history</span>
+        <span><b>0</b> dependencies to learn</span>
+        <span><b>5</b> difficulty levels</span>
+      </div>
+    </div>
+
+    <div class="term" id="demo" aria-hidden="true">
+      <div class="term-bar">
+        <span class="tdot r"></span><span class="tdot y"></span><span class="tdot g"></span>
+        <span class="term-title"><span class="path">~/.local/bin/</span>dactylo --time 30 --level 3</span>
+      </div>
+      <div class="term-body">
+        <div class="tui-head">
+          <span class="tui-title">dactylo</span>
+          <span class="tui-meta">level <b id="t-level">3</b> · <b id="t-time">0:30</b></span>
+        </div>
+        <div class="typearea" id="typearea"><!-- injected --></div>
+        <div class="hint" id="hint">live demo · the timer starts on your first keystroke</div>
+      </div>
+    </div>
+  </header>
+</div>
+
+<div class="wrap">
+  <section id="features">
+    <div class="sec-head">
+      <div class="sec-eyebrow">// what it does</div>
+      <h2>Everything you need, nothing you don't</h2>
+      <p>A single binary that drops you straight into a session. No accounts, no browser tab, no telemetry — just words, a clock, and your own numbers to beat.</p>
+    </div>
+    <div class="features">
+      <div class="fcard">
+        <div class="fsig">[ 15 · 30 · 60 · 120 ]</div>
+        <h3>Timed sessions</h3>
+        <p>Choose a 15, 30, 60, or 120 second run. The clock starts on your first keystroke, never before, so a slow first move never costs you.</p>
+      </div>
+      <div class="fcard">
+        <div class="fsig">⏎ straight in</div>
+        <h3>Remembers your last run</h3>
+        <p>Setup appears only on the first launch. Your duration and level are saved, so every run after that drops you straight into typing. Press <em>s</em> on the results screen to change them.</p>
+      </div>
+      <div class="fcard">
+        <div class="fsig">█ ok &nbsp;<span style="color:var(--red)">█</span> miss</div>
+        <h3>Live per-character feedback</h3>
+        <p>Correct characters turn green. A mistake shows the expected character on a red background. A block cursor always marks exactly where you are.</p>
+      </div>
+      <div class="fcard">
+        <div class="fsig">≡ three lines</div>
+        <h3>Focused view</h3>
+        <p>A centered, fixed-width column shows three lines at a time. The cursor opens on the top line, then holds the middle as text scrolls up beneath it.</p>
+      </div>
+      <div class="fcard">
+        <div class="fsig">⌫ correct</div>
+        <h3>Backspace to fix</h3>
+        <p>Fix mistakes as you go. Corrections clean up the line, though every wrong keystroke still counts toward your accuracy — no hiding from it.</p>
+      </div>
+      <div class="fcard">
+        <div class="fsig">▲ ▼ vs. your best</div>
+        <h3>Progression tracking</h3>
+        <p>Every session is measured against your average and personal best <em>for that level</em>, with up and down deltas so you can see the trend at a glance.</p>
+      </div>
+      <div class="fcard">
+        <div class="fsig">~/.dactylo/history.jsonl</div>
+        <h3>Persistent, plain-text history</h3>
+        <p>Results are appended as JSON lines on your own machine. Yours to read, grep, chart, or back up. Cancelled runs are simply never recorded.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="wrap">
+  <section id="levels">
+    <div class="sec-head">
+      <div class="sec-eyebrow">// difficulty</div>
+      <h2>Five levels, widening the word pool</h2>
+      <p>Words are sampled from a frequency-ranked English list embedded in the binary. Higher levels reach further down it, into rarer and longer words.</p>
+    </div>
+    <div class="levels-wrap">
+      <table class="ltable">
+        <thead><tr><th>Level</th><th>Word pool</th></tr></thead>
+        <tbody>
+          <tr><td><span class="lvl-tag">1</span></td><td class="pool">~200 most common short words</td></tr>
+          <tr><td><span class="lvl-tag">2</span></td><td class="pool">top 1,000 words</td></tr>
+          <tr><td><span class="lvl-tag">3</span></td><td class="pool">top 3,000 words</td></tr>
+          <tr><td><span class="lvl-tag">4</span></td><td class="pool">top 7,000 words</td></tr>
+          <tr><td><span class="lvl-tag">5</span></td><td class="pool">full list — rare and long words</td></tr>
+        </tbody>
+      </table>
+      <aside class="levels-aside">
+        <p>The list is curated to contain <span class="k">real words</span> — abbreviations, acronyms, codes, brand and personal names, and other non-word tokens have been stripped out.</p>
+        <p>Only lowercase words of two or more letters make the cut, so every run feels like language rather than noise.</p>
+        <p>The file is named by language (<span class="k">words-en.txt</span>), leaving room to grow into other languages later.</p>
+      </aside>
+    </div>
+  </section>
+</div>
+
+<div class="wrap">
+  <section id="stats">
+    <div class="sec-head">
+      <div class="sec-eyebrow">// the scoreboard</div>
+      <h2>Five numbers when the clock runs out</h2>
+      <p>Speed is only half the story. dactylo also tells you how clean and how steady you were.</p>
+    </div>
+    <div class="stats-strip">
+      <div class="scell"><div class="sk">WPM</div><div class="sd">Net words per minute: correct characters divided by five, over the minutes elapsed.</div></div>
+      <div class="scell"><div class="sk">Raw WPM</div><div class="sd">The same calculation counting every keystroke, regardless of whether it was right.</div></div>
+      <div class="scell"><div class="sk">Accuracy</div><div class="sd">The share of your keystrokes that landed on the correct character.</div></div>
+      <div class="scell"><div class="sk">Errors</div><div class="sd">Total incorrect keystrokes — and backspacing doesn't make them disappear.</div></div>
+      <div class="scell"><div class="sk">Consistency</div><div class="sd">How steady your pace was, scored 0–100 from per-second WPM samples.</div></div>
+    </div>
+  </section>
+</div>
+
+<div class="wrap">
+  <section id="usage">
+    <div class="sec-head">
+      <div class="sec-eyebrow">// getting started</div>
+      <h2>Build it, then just run it</h2>
+      <p>All you need is a Rust toolchain. Build the release binary, drop it on your <span style="color:var(--yellow)">PATH</span>, and type <span style="color:var(--green)">dactylo</span>.</p>
+    </div>
+    <div class="usage-grid">
+      <div class="codeblock">
+<span class="cmt"># build + install</span>
+<span class="g">$</span> cargo build --release
+<span class="g">$</span> cp target/release/<span class="a">dactylo</span> ~/.local/bin/
+
+<span class="cmt"># first run sets up; later runs jump straight in</span>
+<span class="g">$</span> <span class="a">dactylo</span>
+
+<span class="cmt"># or set duration + level explicitly</span>
+<span class="g">$</span> <span class="a">dactylo</span> <span class="y">--time</span> 60 <span class="y">--level</span> 3
+      </div>
+      <div>
+        <table class="flagtable">
+          <thead><tr><th>Flag</th><th>Range</th><th>Default</th></tr></thead>
+          <tbody>
+            <tr><td>--time</td><td>5–600 s</td><td>60</td></tr>
+            <tr><td>--level</td><td>1–5</td><td>3</td></tr>
+          </tbody>
+        </table>
+        <p class="usage-note">The setup screen appears on first launch only — <span class="kbd2">←</span> <span class="kbd2">→</span> change a value, <span class="kbd2">Tab</span> switches fields, <span class="kbd2">Enter</span> starts. Your choice is saved, so later launches drop you straight into a session. Mid-run, <span class="kbd2">Esc</span> cancels to a partial results screen (not saved) and <span class="kbd2">Ctrl-C</span> exits. On the results screen: <span class="kbd2">Enter</span> restarts, <span class="kbd2">s</span> reopens setup, <span class="kbd2">q</span> quits.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="wrap">
+  <div class="footcta">
+    <h2>Open a terminal. <span class="accent">Beat your best.</span></h2>
+    <p>It's a couple hundred kilobytes of Rust and a word list. Build it once and the only thing left to improve is you.</p>
+    <div class="cmd" style="display:inline-flex;">
+      <span class="sigil">$</span><code>cargo build --release &amp;&amp; dactylo</code>
+      <button class="copy-btn" id="copyBtn2">copy</button>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-inner">
+      <div>dactylo · built in Rust with <a href="https://ratatui.rs" target="_blank" rel="noopener">ratatui</a> · MIT License</div>
+      <div class="foot-links">
+        <a href="https://github.com/source-crafting/dactylo" target="_blank" rel="noopener">Source</a>
+        <a href="https://github.com/source-crafting/dactylo/issues" target="_blank" rel="noopener">Issues</a>
+        <a href="https://github.com/source-crafting/dactylo/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  // ---- copy buttons ----
+  function wireCopy(btnId, text){
+    var b = document.getElementById(btnId);
+    if(!b) return;
+    b.addEventListener('click', function(){
+      navigator.clipboard && navigator.clipboard.writeText(text).then(function(){
+        var o = b.textContent; b.textContent = 'copied'; b.style.color='#1d2021'; b.style.background='#fabd2f'; b.style.borderColor='#fabd2f';
+        setTimeout(function(){ b.textContent=o; b.style.color=''; b.style.background=''; b.style.borderColor=''; }, 1300);
+      });
+    });
+  }
+  wireCopy('copyBtn','cargo build --release');
+  wireCopy('copyBtn2','cargo build --release && dactylo');
+
+  // ---- animated TUI demo ----
+  var area = document.getElementById('typearea');
+  var timeEl = document.getElementById('t-time');
+  var hintEl = document.getElementById('hint');
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // word stream, broken into fixed-width lines (<= ~36 chars) at word boundaries
+  var WORDS = ("the quick brown index over many small ideas while you watch the line "
+    + "move under your hands and the green grows steady against the clock then "
+    + "rare longer words appear to test how far your speed can hold without a "
+    + "single missed key as the timer counts back to zero and the screen turns").split(' ');
+
+  var WIDTH = 36;
+  function buildLines(words){
+    var lines=[], cur='';
+    for(var i=0;i<words.length;i++){
+      var w=words[i];
+      var add=(cur===''?w:cur+' '+w);
+      if(add.length>WIDTH){ lines.push(cur); cur=w; }
+      else cur=add;
+    }
+    if(cur) lines.push(cur);
+    return lines;
+  }
+  var LINES = buildLines(WORDS);
+  // flat char array with line index
+  var CHARS=[];
+  for(var li=0; li<LINES.length; li++){
+    var s=LINES[li];
+    for(var ci=0; ci<s.length; ci++){ CHARS.push({c:s[ci], line:li}); }
+    if(li<LINES.length-1) CHARS.push({c:' ', line:li, brk:true}); // line break marker (rendered as newline)
+  }
+
+  // scripted mistakes: at these indices, type a wrong char first, pause, backspace, retype
+  var MISTAKES = { 19:'r', 58:'t', 104:'e' };
+
+  var LH = null; // line height px, measured
+
+  function renderState(pos, badAt){
+    // badAt: index currently showing a wrong char (or -1)
+    var html='<div class="viewport"><div class="scroller" id="scroller">';
+    var curLineHtml='', lastLine=0, lineBuf=[];
+    // group chars by line
+    var byLine={};
+    for(var i=0;i<CHARS.length;i++){
+      var ln=CHARS[i].line;
+      if(!byLine[ln]) byLine[ln]=[];
+      byLine[ln].push({ch:CHARS[i], idx:i});
+    }
+    var keys=Object.keys(byLine).map(Number).sort(function(a,b){return a-b;});
+    // cursor line = line of current position (stable even during a mistake flash)
+    var cursorLine = (CHARS[pos] ? CHARS[pos].line : (CHARS.length? CHARS[CHARS.length-1].line : 0));
+    for(var k=0;k<keys.length;k++){
+      var ln=keys[k];
+      var row='';
+      var arr=byLine[ln];
+      for(var j=0;j<arr.length;j++){
+        var item=arr[j], idx=item.idx, ch=item.ch.c;
+        var cls='ch';
+        if(idx<pos){ cls+=' ok'; }
+        if(idx===pos){
+          if(badAt===pos){ cls+=' bad'; }
+          else { cls+=' cur pulse'; }
+        }
+        if(idx===badAt && badAt!==pos){ cls+=' bad'; }
+        var shown=ch;
+        if(idx===badAt){ shown=ch; } // show expected char on red bg
+        row+='<span class="'+cls+'">'+ (shown===' ' ? '&nbsp;' : escapeHtml(shown)) +'</span>';
+      }
+      html+='<div class="tline">'+row+'</div>';
+    }
+    html+='</div></div>';
+    area.innerHTML=html;
+    // scroll so cursor line sits on middle (index>=1)
+    var scroller=document.getElementById('scroller');
+    if(LH===null){
+      var probe=area.querySelector('.tline');
+      LH = probe ? probe.getBoundingClientRect().height : 33;
+    }
+    var shift = Math.max(0, cursorLine-1)*LH;
+    scroller.style.transform='translateY('+(-shift)+'px)';
+  }
+
+  function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function renderCountdown(n){
+    area.innerHTML='<div class="countdown">'+n+'</div>';
+  }
+
+  function renderResults(){
+    area.innerHTML =
+      '<div class="results">'
+      + '<div class="results-grid">'
+      +   stat('WPM','72','net','up','▲ 4 vs best')
+      +   stat('Raw','78','','up','▲ 3')
+      +   stat('Acc','97','%','down','▼ 1%')
+      +   stat('Errors','6','','up','▲ best yet')
+      +   stat('Consist','89','','up','▲ 6')
+      +   stat('Level','3','','','your avg 68')
+      + '</div>'
+      + '<div class="results-foot"><span>level 3 · 30s · saved to ~/.dactylo</span>'
+      +   '<span><span class="kbd">Enter</span> restart &nbsp; <span class="kbd">s</span> settings &nbsp; <span class="kbd">q</span> quit</span></div>'
+      + '</div>';
+  }
+  function stat(lbl,val,unit,dir,delta){
+    var d = dir ? '<div class="delta '+dir+'">'+delta+'</div>' : '<div class="delta" style="color:var(--muted)">'+delta+'</div>';
+    return '<div class="stat"><div class="lbl">'+lbl+'</div>'
+      + '<div class="val">'+val+(unit?'<span class="u">'+unit+'</span>':'')+'</div>'+d+'</div>';
+  }
+
+  function fmt(t){ var m=Math.floor(t/60), s=t%60; return m+':'+(s<10?'0':'')+s; }
+
+  // ---- run loop ----
+  var timer=null;
+
+  function runCycle(){
+    if(reduce){
+      // static: show a typed line set + results, no rapid motion
+      renderState(CHARS.length, -1);
+      timeEl.textContent='0:00';
+      setTimeout(function(){ renderResults(); timeEl.textContent='0:00'; }, 50);
+      return; // do not loop under reduced motion
+    }
+    var pos=0, t=30;
+    timeEl.textContent=fmt(t);
+    hintEl.textContent='live demo · the timer starts on your first keystroke';
+
+    // no countdown — dactylo drops you straight into a session
+    renderState(0,-1);
+    setTimeout(startTyping, 500);
+
+    function startTyping(){
+      renderState(0,-1);
+      var clock=setInterval(function(){ if(t>0){ t--; timeEl.textContent=fmt(t);} },1000);
+      step();
+
+      function step(){
+        if(pos>=CHARS.length){
+          clearInterval(clock);
+          finish();
+          return;
+        }
+        // mistake injection
+        if(MISTAKES[pos]!==undefined){
+          var wrong=MISTAKES[pos];
+          renderState(pos, pos); // show red at cursor (wrong key)
+          delete MISTAKES[pos];  // only once
+          setTimeout(function(){
+            renderState(pos,-1);   // backspace: back to normal cursor
+            setTimeout(step, 130);
+          }, 240);
+          return;
+        }
+        pos++;
+        renderState(pos,-1);
+        var delay = 42 + Math.random()*55;
+        if(CHARS[pos-1] && CHARS[pos-1].c===' ') delay += 30;
+        setTimeout(step, delay);
+      }
+
+      function finish(){
+        hintEl.textContent="time's up · Enter to restart, s for settings";
+        renderResults();
+        setTimeout(function(){
+          // rebuild mistakes for next loop
+          MISTAKES = { 19:'r', 58:'t', 104:'e' };
+          runCycle();
+        }, 4200);
+      }
+    }
+  }
+
+  // kick off once fonts/layout are ready
+  if(document.fonts && document.fonts.ready){
+    document.fonts.ready.then(function(){ LH=null; runCycle(); });
+  } else {
+    window.addEventListener('load', runCycle);
+  }
+})();
+</script>
+</body>
+</html>
