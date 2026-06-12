@@ -40,6 +40,9 @@ pub struct LevelSummary {
     pub best_wpm: f64,
     pub avg_accuracy: f64,
     pub best_accuracy: f64,
+    pub best_raw_wpm: f64,
+    pub min_errors: usize,
+    pub best_consistency: f64,
 }
 
 /// One session's chartable metrics, in chronological order within a level.
@@ -67,6 +70,9 @@ pub fn summary_of(records: &[Record], level: u8) -> Option<LevelSummary> {
         best_wpm: recs.iter().map(|r| r.wpm).fold(f64::MIN, f64::max),
         avg_accuracy: recs.iter().map(|r| r.accuracy).sum::<f64>() / n,
         best_accuracy: recs.iter().map(|r| r.accuracy).fold(f64::MIN, f64::max),
+        best_raw_wpm: recs.iter().map(|r| r.raw_wpm).fold(f64::MIN, f64::max),
+        min_errors: recs.iter().map(|r| r.errors).min().unwrap_or(0),
+        best_consistency: recs.iter().map(|r| r.consistency).fold(f64::MIN, f64::max),
     })
 }
 
@@ -181,6 +187,8 @@ mod tests {
 
     #[test]
     fn summary_of_filters_by_level_and_aggregates() {
+        // record(level, wpm, accuracy) sets raw_wpm = wpm + 2.0, errors = 3,
+        // consistency = 90.0 (see the `record` helper).
         let recs = vec![
             record(3, 50.0, 95.0),
             record(3, 60.0, 97.0),
@@ -192,6 +200,9 @@ mod tests {
         assert_eq!(s.best_wpm, 60.0);
         assert!((s.avg_accuracy - 96.0).abs() < 1e-9);
         assert_eq!(s.best_accuracy, 97.0);
+        assert_eq!(s.best_raw_wpm, 62.0); // max(52, 62)
+        assert_eq!(s.min_errors, 3); // both records have errors = 3
+        assert_eq!(s.best_consistency, 90.0); // both have consistency = 90
     }
 
     #[test]
