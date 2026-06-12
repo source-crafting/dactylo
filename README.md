@@ -72,12 +72,12 @@ If you pass one flag, the other takes its default.
 ### Results screen
 
 After time runs out — or after you cancel with Esc — you'll see a per-level
-dashboard: tabs for levels 1–5 (the level you just played is marked `*`), that
-level's session count and average/best, your latest run, and two charts plotting
-**WPM** and **accuracy** across that level's sessions. Use **←/→** to switch the
-level tab; the whole view follows. Press **Enter** to restart with the same
-settings, **s** to change settings, or `q`/Esc to quit. (On a short terminal the
-charts are replaced by a text summary.)
+dashboard: tabs for levels 1–5 (the level you just played is marked `*`) and,
+for the selected level, a **WPM** row and an **accuracy** row, each showing the
+latest/average/best plus a sparkline of that metric across the level's sessions.
+Use **←/→** to switch the level tab; the whole view follows. Press **Enter** to
+restart with the same settings, **s** to change settings, or `q`/Esc to quit.
+(On a short terminal the sparklines are replaced by a text summary.)
 
 ## Difficulty levels
 
