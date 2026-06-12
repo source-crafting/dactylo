@@ -8,7 +8,7 @@ use ratatui::Frame;
 const MARGIN: u16 = 2;
 
 /// A dotted rule string of the given width.
-fn rule_str(width: u16) -> String {
+pub(crate) fn rule_str(width: u16) -> String {
     "┄".repeat(width as usize)
 }
 
@@ -55,8 +55,6 @@ pub fn header(frame: &mut Frame, area: Rect, right: Line) -> Rect {
 
 /// A line of boxed key chips: each `key` shown reversed/boxed, followed by its
 /// dim `action`.
-// consumed by the results screen in a later task
-#[allow(dead_code)]
 pub fn key_hints(pairs: &[(&str, &str)]) -> Line<'static> {
     let mut spans = Vec::new();
     for (key, action) in pairs {

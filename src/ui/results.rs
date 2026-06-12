@@ -2,7 +2,7 @@ use ratatui::crossterm::event::KeyCode;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, Sparkline, Tabs};
+use ratatui::widgets::{Paragraph, Sparkline, Tabs};
 use ratatui::Frame;
 
 use crate::config::Settings;
@@ -115,80 +115,145 @@ impl ResultsScreen {
 
     pub fn draw(&self, frame: &mut Frame) {
         let area = frame.area();
-        let title = match self.view {
-            View::Summary if self.cancelled => format!(
-                " results — level {} · {}s · cancelled ",
-                self.settings.level, self.settings.duration_secs
-            ),
-            View::Summary => format!(
-                " results — level {} · {}s ",
-                self.settings.level, self.settings.duration_secs
-            ),
-            View::History => " history ".to_string(),
-        };
-        let block = Block::bordered().title(title);
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
         match self.view {
-            View::Summary => self.draw_summary(frame, inner),
-            // The sparkline view needs ~8 rows; fall back to text when smaller.
-            View::History if inner.height < 8 || inner.width < 40 => {
-                self.draw_history_compact(frame, inner)
+            View::Summary => self.draw_summary(frame, area),
+            View::History if area.width < 40 || area.height < 12 => {
+                self.draw_history_compact(frame, area)
             }
-            View::History => self.draw_history(frame, inner),
+            View::History => self.draw_history(frame, area),
         }
     }
 
-    /// The just-played session: headline stats and the vs-previous comparison.
-    fn draw_summary(&self, frame: &mut Frame, inner: Rect) {
-        let r = &self.result;
-        let mut lines: Vec<Line> = vec![
-            Line::default(),
-            Line::from(Span::styled(
-                format!("  wpm          {:>6.1}", r.wpm),
-                Style::new().fg(Color::Green).add_modifier(Modifier::BOLD),
-            )),
-            Line::from(format!("  raw wpm      {:>6.1}", r.raw_wpm)),
-            Line::from(format!("  accuracy     {:>5.1}%", r.accuracy)),
-            Line::from(format!("  errors       {:>6}", r.errors)),
-            Line::from(format!("  consistency  {:>5.1}%", r.consistency)),
-            Line::default(),
-        ];
+    /// The just-played session: a 2×3 grid comparing each metric vs your best.
+    fn draw_summary(&self, frame: &mut Frame, area: Rect) {
+        let dur = self.settings.duration_secs;
+        let right = Line::from(vec![
+            Span::styled("level ", Style::new().fg(Color::DarkGray)),
+            Span::styled(
+                self.settings.level.to_string(),
+                Style::new().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" · ", Style::new().fg(Color::DarkGray)),
+            Span::styled(
+                format!("{}:{:02}", dur / 60, dur % 60),
+                Style::new().add_modifier(Modifier::BOLD),
+            ),
+        ]);
+        let body = crate::ui::chrome::header(frame, area, right);
 
-        if self.cancelled {
-            lines.push(Line::from(Span::styled(
-                "  session cancelled — not saved to history",
-                Style::new().fg(Color::Yellow),
-            )));
-            lines.push(Line::default());
+        if body.width < 36 || body.height < 9 {
+            frame.render_widget(Paragraph::new("please enlarge terminal"), body);
+            return;
         }
 
-        match &self.prev_summary {
-            Some(sum) => {
-                lines.push(Line::from(format!(
-                    "  vs your {} previous level-{} session(s):",
-                    sum.count, self.settings.level
-                )));
-                lines.push(delta_line("wpm", r.wpm, sum.avg_wpm, sum.best_wpm, ""));
-                lines.push(delta_line(
-                    "acc",
-                    r.accuracy,
-                    sum.avg_accuracy,
-                    sum.best_accuracy,
-                    "%",
+        let r = &self.result;
+        let prev = self.prev_summary.as_ref();
+
+        let wpm = metric_cell(
+            "WPM",
+            format!("{:.0}", r.wpm),
+            "net",
+            self.delta(r.wpm, prev.map(|p| p.best_wpm), true),
+        );
+        let raw = metric_cell(
+            "RAW",
+            format!("{:.0}", r.raw_wpm),
+            "",
+            self.delta(r.raw_wpm, prev.map(|p| p.best_raw_wpm), true),
+        );
+        let acc = metric_cell(
+            "ACC",
+            format!("{:.0}", r.accuracy),
+            "%",
+            self.delta(r.accuracy, prev.map(|p| p.best_accuracy), true),
+        );
+        let errs = metric_cell(
+            "ERRORS",
+            format!("{}", r.errors),
+            "",
+            self.delta(r.errors as f64, prev.map(|p| p.min_errors as f64), false),
+        );
+        let cons = metric_cell(
+            "CONSIST",
+            format!("{:.0}", r.consistency),
+            "",
+            self.delta(r.consistency, prev.map(|p| p.best_consistency), true),
+        );
+        let lvl_delta = match prev {
+            Some(p) => dim(format!("your avg {:.0}", p.avg_wpm)),
+            None => dim("your avg —"),
+        };
+        let lvl = metric_cell("LEVEL", self.settings.level.to_string(), "", lvl_delta);
+
+        let rows = Layout::vertical([
+            Constraint::Length(3), // row 1 cells
+            Constraint::Length(1), // gap
+            Constraint::Length(3), // row 2 cells
+            Constraint::Min(0),    // spacer
+            Constraint::Length(1), // rule
+            Constraint::Length(1), // meta
+            Constraint::Length(1), // chips
+            Constraint::Length(1), // status
+        ])
+        .split(body);
+
+        render_cells(frame, rows[0], [wpm, raw, acc]);
+        render_cells(frame, rows[2], [errs, cons, lvl]);
+
+        frame.render_widget(
+            Paragraph::new(dim(crate::ui::chrome::rule_str(body.width))),
+            rows[4],
+        );
+
+        let mut meta = vec![Span::styled(
+            format!("level {} · {dur}s", self.settings.level),
+            Style::new().fg(Color::DarkGray),
+        )];
+        match &self.warning {
+            Some(w) => {
+                meta.push(Span::styled(" · ", Style::new().fg(Color::DarkGray)));
+                meta.push(Span::styled(
+                    format!("warning: {w}"),
+                    Style::new().fg(Color::Yellow),
                 ));
             }
-            None => lines.push(Line::from("  first session at this level — no history yet")),
+            // Only claim "saved" for a completed run that actually recorded.
+            None if !self.cancelled => meta.push(Span::styled(
+                " · saved to ~/.dactylo",
+                Style::new().fg(Color::DarkGray),
+            )),
+            None => {} // cancelled, no warning: the status line states it wasn't saved
         }
+        frame.render_widget(Paragraph::new(Line::from(meta)), rows[5]);
+        frame.render_widget(
+            Paragraph::new(crate::ui::chrome::key_hints(&[
+                ("Enter", "restart"),
+                ("s", "settings"),
+                ("h", "history"),
+                ("q", "quit"),
+            ])),
+            rows[6],
+        );
+        let status = if self.cancelled {
+            "session cancelled — not saved"
+        } else {
+            "time's up"
+        };
+        frame.render_widget(Paragraph::new(dim(status)), rows[7]);
+    }
 
-        if let Some(w) = &self.warning {
-            lines.push(Line::default());
-            lines.push(warning_line(w));
+    /// Build a delta line for a metric, or a dim `—` when there's no prior best.
+    fn delta(&self, value: f64, best: Option<f64>, higher_is_better: bool) -> Line<'static> {
+        match best {
+            Some(best) => {
+                let (arrow, text, color) = metric_delta(value, best, higher_is_better);
+                Line::from(Span::styled(
+                    format!("{arrow} {text}"),
+                    Style::new().fg(color),
+                ))
+            }
+            None => dim("—"),
         }
-
-        lines.push(Line::default());
-        lines.push(dim("  enter restart · s settings · h history · q/esc quit"));
-        frame.render_widget(Paragraph::new(lines), inner);
     }
 
     /// Level tabs across the top; the played level marked with `*`, the selected
@@ -329,22 +394,51 @@ impl ResultsScreen {
     }
 }
 
-/// A "vs previous" comparison line: `wpm  62.0  ▲ +3.8 vs avg (58.2)  best 71.0`.
-fn delta_line(label: &str, value: f64, avg: f64, best: f64, unit: &str) -> Line<'static> {
-    let delta = value - avg;
-    let (arrow, color) = if delta >= 0.0 {
-        ("▲", Color::Green)
+/// A 3-line metric cell: dim label, bold value + dim unit, then the delta line.
+fn metric_cell(label: &str, value: String, unit: &str, delta: Line<'static>) -> Paragraph<'static> {
+    let value_line = if unit.is_empty() {
+        Line::from(Span::styled(
+            value,
+            Style::new().add_modifier(Modifier::BOLD),
+        ))
     } else {
-        ("▼", Color::Red)
+        Line::from(vec![
+            Span::styled(value, Style::new().add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" {unit}"), Style::new().fg(Color::DarkGray)),
+        ])
     };
-    Line::from(vec![
-        Span::raw(format!("  {label:<4} {value:>5.1}{unit}  ")),
-        Span::styled(
-            format!("{arrow} {delta:+.1} vs avg ({avg:.1}{unit})"),
-            Style::new().fg(color),
-        ),
-        Span::raw(format!("    best {best:.1}{unit}")),
+    Paragraph::new(vec![dim(label), value_line, delta])
+}
+
+/// Render three cells side by side across `area` (each ~a third of the width).
+fn render_cells(frame: &mut Frame, area: Rect, cells: [Paragraph<'static>; 3]) {
+    let cols = Layout::horizontal([
+        Constraint::Percentage(34),
+        Constraint::Percentage(33),
+        Constraint::Percentage(33),
     ])
+    .split(area);
+    for (cell, col) in cells.into_iter().zip(cols.iter()) {
+        frame.render_widget(cell, *col);
+    }
+}
+
+/// Compare `value` to your prior `best` for a metric. An improvement (>= best,
+/// or <= best for `!higher_is_better`) is a green `▲ best yet`; otherwise a red
+/// `▼ {gap} off best`.
+fn metric_delta(value: f64, best: f64, higher_is_better: bool) -> (&'static str, String, Color) {
+    let improved = if higher_is_better {
+        value >= best
+    } else {
+        value <= best
+    };
+    if improved {
+        ("▲", "best yet".to_string(), Color::Green)
+    } else if higher_is_better {
+        ("▼", format!("-{:.0} off best", best - value), Color::Red)
+    } else {
+        ("▼", format!("+{:.0} off best", value - best), Color::Red)
+    }
 }
 
 /// The footer hint shown on both the full and compact history views.
@@ -564,5 +658,27 @@ mod tests {
         assert!(s.in_history()); // q returns Quit without changing the view
         assert!(s.handle_key(KeyCode::Esc).is_none());
         assert!(!s.in_history());
+    }
+
+    #[test]
+    fn metric_delta_higher_is_better() {
+        let (arrow, text, color) = metric_delta(72.0, 68.0, true);
+        assert_eq!(arrow, "▲");
+        assert_eq!(text, "best yet");
+        assert_eq!(color, ratatui::style::Color::Green);
+        let (arrow, text, color) = metric_delta(60.0, 68.0, true);
+        assert_eq!(arrow, "▼");
+        assert_eq!(text, "-8 off best");
+        assert_eq!(color, ratatui::style::Color::Red);
+    }
+
+    #[test]
+    fn metric_delta_lower_is_better_for_errors() {
+        let (arrow, text, _) = metric_delta(6.0, 10.0, false);
+        assert_eq!(arrow, "▲");
+        assert_eq!(text, "best yet");
+        let (arrow, text, _) = metric_delta(12.0, 10.0, false);
+        assert_eq!(arrow, "▼");
+        assert_eq!(text, "+2 off best");
     }
 }
