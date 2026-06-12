@@ -73,11 +73,11 @@
     display:flex;align-items:center;justify-content:space-between;
     padding:20px 0;border-bottom:1px solid var(--panel-line);
   }
-  .brand{display:flex;align-items:center;gap:11px;font-weight:800;font-size:1.05rem;letter-spacing:.02em;}
+  .brand{display:flex;align-items:center;gap:0;font-weight:800;font-size:1.05rem;letter-spacing:.02em;color:var(--fg);}
   .brand .prompt{color:var(--green);}
   .brand .blink{
-    display:inline-block;width:.6ch;height:1.05em;background:var(--yellow);
-    transform:translateY(.16em);animation:blink 1.05s steps(1) infinite;
+    display:inline-block;width:.55em;height:.92em;background:var(--yellow);margin-left:.3em;
+    transform:translateY(.06em);animation:blink 1.05s steps(1) infinite;
   }
   @keyframes blink{50%{opacity:0;}}
   .topnav{display:flex;align-items:center;gap:26px;font-size:.9rem;color:var(--fg-dim);}
