@@ -487,10 +487,9 @@ mod tests {
         let t0 = Instant::now();
         let first_space = s.target().iter().position(|&c| c == ' ').unwrap();
         let first_word: String = s.target()[..first_space].iter().collect();
-        // Type only the first TWO chars of the first word (cursor stays inside it).
+        // Type only the FIRST char. Words are >= 2 chars, so the first word can
+        // never be fully typed here, and a partially-typed word must not count.
         s.keystroke(s.target()[0], t0);
-        s.keystroke(s.target()[1], t0);
-        // The word is not fully typed, so it must not be recorded as seen.
         assert!(!s.tally().words.contains_key(&first_word));
     }
 
