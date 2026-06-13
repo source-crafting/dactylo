@@ -15,6 +15,7 @@ use ratatui::DefaultTerminal;
 
 use config::{Cli, Settings};
 use history::{summary_of, History, LevelSummary, Record};
+use mistakes::{MistakeLog, MistakeRecord, MistakeTally};
 use session::{Session, SessionResult};
 use ui::config::{ConfigAction, ConfigScreen};
 use ui::results::{ResultsAction, ResultsScreen};
@@ -36,8 +37,8 @@ fn main() -> io::Result<()> {
 }
 
 enum TypingOutcome {
-    Completed(SessionResult),
-    Cancelled(SessionResult),
+    Completed(SessionResult, MistakeTally),
+    Cancelled(SessionResult, MistakeTally),
     Quit,
 }
 
@@ -116,6 +117,20 @@ fn record_and_snapshot(
     }
 }
 
+/// Append the run's mistake detail to `mistakes.jsonl` (best-effort; a failure
+/// is silently ignored — mistake logging must never interrupt the app). Skips
+/// empty tallies (a run with no keystrokes). `practice` runs and cancelled runs
+/// are logged here but never reach `history.jsonl`.
+fn record_mistakes(log: Option<&MistakeLog>, tally: &MistakeTally, level: u8, practice: bool) {
+    if tally.is_empty() {
+        return;
+    }
+    if let Some(log) = log {
+        let ts = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let _ = log.append(&MistakeRecord::from_tally(tally, level, practice, ts));
+    }
+}
+
 /// Record the session and build the dashboard screen for it.
 fn results_screen_for(settings: Settings, result: SessionResult, cancelled: bool) -> ResultsScreen {
     let history = History::default_dir().map(History::new);
@@ -143,6 +158,7 @@ fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Re
     // The stats screen to return to when Esc is pressed in setup. Set when the
     // user opens setup via `s`; cleared once a new session starts.
     let mut return_to: Option<ResultsScreen> = None;
+    let mistake_log = History::default_dir().map(MistakeLog::new);
 
     loop {
         screen = match screen {
@@ -161,10 +177,14 @@ fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Re
             },
             Screen::Typing(settings) => match typing_screen(terminal, settings)? {
                 TypingOutcome::Quit => return Ok(()),
-                TypingOutcome::Completed(r) => {
+                TypingOutcome::Completed(r, tally) => {
+                    record_mistakes(mistake_log.as_ref(), &tally, settings.level, false);
                     Screen::Stats(results_screen_for(settings, r, false))
                 }
-                TypingOutcome::Cancelled(r) => Screen::Stats(results_screen_for(settings, r, true)),
+                TypingOutcome::Cancelled(r, tally) => {
+                    record_mistakes(mistake_log.as_ref(), &tally, settings.level, false);
+                    Screen::Stats(results_screen_for(settings, r, true))
+                }
             },
             Screen::Stats(mut screen) => match stats_screen(terminal, &mut screen)? {
                 ResultsAction::Restart => Screen::Typing(screen.settings()),
@@ -216,7 +236,7 @@ fn typing_screen(terminal: &mut DefaultTerminal, settings: Settings) -> io::Resu
         let now = Instant::now();
         session.tick(now);
         if session.is_finished(now) {
-            return Ok(TypingOutcome::Completed(session.results()));
+            return Ok(TypingOutcome::Completed(session.results(), session.tally()));
         }
         terminal
             .draw(|f| ui::typing::draw(f, &session, now, settings.level, settings.duration_secs))?;
@@ -231,7 +251,10 @@ fn typing_screen(terminal: &mut DefaultTerminal, settings: Settings) -> io::Resu
                 match key.code {
                     // Esc cancels: show partial stats (over elapsed time), not saved.
                     KeyCode::Esc => {
-                        return Ok(TypingOutcome::Cancelled(session.results_at(Instant::now())))
+                        return Ok(TypingOutcome::Cancelled(
+                            session.results_at(Instant::now()),
+                            session.tally(),
+                        ))
                     }
                     KeyCode::Backspace => session.backspace(),
                     // Fresh Instant: timestamp at receipt, not at render start.
@@ -343,5 +366,30 @@ mod tests {
         assert!(completed.warning.is_some());
         let cancelled = record_and_snapshot(None, settings(), sample_result(), true);
         assert!(cancelled.warning.is_none());
+    }
+
+    #[test]
+    fn mistakes_are_logged_for_normal_and_practice_runs() {
+        use crate::mistakes::{MistakeLog, MistakeTally};
+        let dir = tempfile::tempdir().unwrap();
+        let log = MistakeLog::new(dir.path().to_path_buf());
+        let mut tally = MistakeTally::default();
+        tally.keys.insert('b', (10, 4));
+        // normal completed run
+        record_mistakes(Some(&log), &tally, 3, false);
+        // practice run
+        record_mistakes(Some(&log), &tally, 3, true);
+        let (recs, _) = log.load_with_skipped();
+        assert_eq!(recs.len(), 2);
+        assert!(!recs[0].practice && recs[1].practice);
+    }
+
+    #[test]
+    fn empty_tally_is_not_logged() {
+        use crate::mistakes::{MistakeLog, MistakeTally};
+        let dir = tempfile::tempdir().unwrap();
+        let log = MistakeLog::new(dir.path().to_path_buf());
+        record_mistakes(Some(&log), &MistakeTally::default(), 3, false);
+        assert!(log.load_with_skipped().0.is_empty());
     }
 }

@@ -223,7 +223,6 @@ impl Session {
     }
 
     /// Snapshot the mistakes recorded so far this run.
-    #[allow(dead_code)]
     pub fn tally(&self) -> MistakeTally {
         let mut words: BTreeMap<String, (u32, u32)> = BTreeMap::new();
         for (start, end, text) in &self.word_spans {
