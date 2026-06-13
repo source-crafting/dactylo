@@ -242,14 +242,11 @@ impl Session {
     pub fn tally(&self) -> MistakeTally {
         let mut words: BTreeMap<String, (u32, u32)> = BTreeMap::new();
         for (start, end, text) in &self.word_spans {
-            if *start < self.cursor {
-                let upto = (*end).min(self.cursor);
-                let fumbled = (*start..upto).any(|p| self.ever_wrong[p]);
-                let entry = words.entry(text.clone()).or_insert((0, 0));
-                entry.0 += 1;
-                if fumbled {
-                    entry.1 += 1;
-                }
+            // Count a word only once it is fully typed (cursor past its last
+            // char); an in-progress final word at session end is not counted.
+            if *end <= self.cursor {
+                let fumbled = (*start..*end).any(|p| self.ever_wrong[p]);
+                bump(words.entry(text.clone()).or_insert((0, 0)), fumbled);
             }
         }
         MistakeTally {
@@ -482,6 +479,19 @@ mod tests {
         s.keystroke(sp, t0);
         let tally = s.tally();
         assert_eq!(tally.words.get(&word), Some(&(1, 1))); // seen once, fumbled
+    }
+
+    #[test]
+    fn tally_excludes_partially_typed_word() {
+        let mut s = new_session();
+        let t0 = Instant::now();
+        let first_space = s.target().iter().position(|&c| c == ' ').unwrap();
+        let first_word: String = s.target()[..first_space].iter().collect();
+        // Type only the first TWO chars of the first word (cursor stays inside it).
+        s.keystroke(s.target()[0], t0);
+        s.keystroke(s.target()[1], t0);
+        // The word is not fully typed, so it must not be recorded as seen.
+        assert!(!s.tally().words.contains_key(&first_word));
     }
 
     #[test]

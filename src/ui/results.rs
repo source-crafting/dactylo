@@ -134,6 +134,7 @@ impl ResultsScreen {
                     self.view = View::Summary;
                     None
                 }
+                KeyCode::Char('w') | KeyCode::Char('W') => Some(ResultsAction::Weaknesses),
                 KeyCode::Char('q') | KeyCode::Char('Q') => Some(ResultsAction::Quit),
                 _ => None,
             },
@@ -426,7 +427,15 @@ impl ResultsScreen {
             frame.render_widget(Paragraph::new(warning_line(w)), chunks[5]);
         }
 
-        frame.render_widget(Paragraph::new(dim(HISTORY_FOOTER)), chunks[7]);
+        frame.render_widget(
+            Paragraph::new(crate::ui::chrome::key_hints(&[
+                ("←/→", "level"),
+                ("esc/h", "back"),
+                ("w", "weaknesses"),
+                ("q", "quit"),
+            ])),
+            chunks[7],
+        );
     }
 
     /// Small-terminal fallback for the history view: same numbers as the full
@@ -474,7 +483,7 @@ impl ResultsScreen {
         }
 
         lines.push(Line::default());
-        lines.push(dim(HISTORY_FOOTER));
+        lines.push(dim("  ←/→ level · esc/h back · w weaknesses · q quit"));
         frame.render_widget(Paragraph::new(lines), chunks[1]);
     }
 }
@@ -547,9 +556,6 @@ fn metric_delta(
     };
     ("▼", format!("{shown:+} vs avg"), color)
 }
-
-/// The footer hint shown on both the full and compact history views.
-const HISTORY_FOOTER: &str = "  ←/→ level · esc/h back · q quit";
 
 /// Smallest value range (WPM points / accuracy %) a sparkline spreads to full
 /// height; narrower ranges render near-flat so noise isn't exaggerated.
@@ -855,6 +861,16 @@ mod tests {
     #[test]
     fn w_opens_weaknesses_from_summary() {
         let mut s = results_screen(false);
+        assert!(matches!(
+            s.handle_key(KeyCode::Char('w')),
+            Some(ResultsAction::Weaknesses)
+        ));
+    }
+
+    #[test]
+    fn w_opens_weaknesses_from_history_view() {
+        let mut s = results_screen(false);
+        s.handle_key(KeyCode::Char('h')); // enter History view
         assert!(matches!(
             s.handle_key(KeyCode::Char('w')),
             Some(ResultsAction::Weaknesses)

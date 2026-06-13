@@ -105,7 +105,7 @@ impl PracticePool {
         let weak_combos: Vec<&str> = profile.combos.iter().map(|w| w.label.as_str()).collect();
         let fumbled_set: std::collections::HashSet<&str> =
             fumbled.iter().map(String::as_str).collect();
-        let weak_rich: Vec<String> = pool_words(level)
+        let mut weak_rich: Vec<String> = pool_words(level)
             .into_iter()
             .filter(|w| {
                 !fumbled_set.contains(w)
@@ -116,6 +116,23 @@ impl PracticePool {
             .collect();
         if fumbled.is_empty() && weak_rich.is_empty() {
             return None;
+        }
+        // Guarantee variety: a profile with, say, one fumbled word and no
+        // weak-key matches would otherwise repeat that single word for the
+        // whole session. Pad weak_rich with normal level words (deduped) so the
+        // stream stays varied while still drilling the real weaknesses.
+        const MIN_VARIETY: usize = 8;
+        if fumbled.len() + weak_rich.len() < MIN_VARIETY {
+            let mut have: std::collections::HashSet<String> =
+                fumbled.iter().chain(weak_rich.iter()).cloned().collect();
+            for w in pool_words(level) {
+                if fumbled.len() + weak_rich.len() >= MIN_VARIETY {
+                    break;
+                }
+                if have.insert(w.to_string()) {
+                    weak_rich.push(w.to_string());
+                }
+            }
         }
         Some(PracticePool {
             fumbled,
@@ -262,6 +279,21 @@ mod tests {
         for _ in 0..20 {
             assert_eq!(a.next_word(None), b.next_word(None));
         }
+    }
+
+    #[test]
+    fn practice_pool_single_fumbled_word_still_varies() {
+        // One fumbled word, no weak keys/combos -> must NOT repeat one word.
+        let profile = profile_with(&[], &["because"]);
+        let mut pool = PracticePool::seeded(&profile, 1, 5).unwrap();
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..50 {
+            seen.insert(pool.next_word(None));
+        }
+        assert!(
+            seen.len() >= 2,
+            "practice pool should offer variety, got {seen:?}"
+        );
     }
 
     #[test]
