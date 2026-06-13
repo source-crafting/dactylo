@@ -372,4 +372,20 @@ mod tests {
         let labels: Vec<&str> = p.keys.iter().map(|k| k.label.as_str()).collect();
         assert_eq!(labels, vec!["a", "b"]); // more total misses first
     }
+
+    #[test]
+    fn combos_roundtrip_and_rank() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = MistakeLog::new(dir.path().to_path_buf());
+        let mut r = rec(3, &[], &[]);
+        r.combos.insert("io".into(), (10, 4)); // 40%, >= MIN_COMBO_OCC
+        r.combos.insert("zz".into(), (3, 3)); // below MIN_COMBO_OCC -> excluded
+        log.append(&r).unwrap();
+        let (recs, skipped) = log.load_with_skipped();
+        assert_eq!(skipped, 0);
+        assert_eq!(recs[0].combos.get("io"), Some(&(10, 4)));
+        let p = WeaknessProfile::from_records(&recs, Sort::Rate);
+        let labels: Vec<&str> = p.combos.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, vec!["io"]);
+    }
 }
