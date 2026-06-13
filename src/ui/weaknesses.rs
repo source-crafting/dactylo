@@ -94,7 +94,7 @@ impl WeaknessScreen {
             return;
         }
 
-        // Three columns: keys, combos, words. (combos is empty until Phase 2.)
+        // Three columns: keys, combos, words.
         let cols = Layout::horizontal([
             Constraint::Percentage(30),
             Constraint::Percentage(30),

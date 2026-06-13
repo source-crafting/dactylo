@@ -15,7 +15,7 @@ pub struct MistakeTally {
     pub keys: BTreeMap<char, (u32, u32)>,
     /// word -> (seen, fumbled)
     pub words: BTreeMap<String, (u32, u32)>,
-    /// two-char transition "ab" -> (occurrences, wrong). Populated in Phase 2.
+    /// within-word two-char transition "ab" -> (occurrences, wrong)
     pub combos: BTreeMap<String, (u32, u32)>,
 }
 
