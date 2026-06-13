@@ -1,5 +1,6 @@
 mod config;
 mod history;
+mod jsonl;
 mod mistakes;
 mod session;
 mod stats;
@@ -21,6 +22,12 @@ use ui::config::{ConfigAction, ConfigScreen};
 use ui::results::{ResultsAction, ResultsScreen};
 use ui::weaknesses::{WeaknessAction, WeaknessScreen};
 use words::{PracticePool, WordPool, WordStream};
+
+/// The current UTC time as an RFC3339 second-precision string (the timestamp
+/// format used in both history.jsonl and mistakes.jsonl).
+fn now_ts() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
 
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
@@ -83,7 +90,7 @@ fn record_and_snapshot(
             let mut warnings: Vec<String> = Vec::new();
             if !cancelled {
                 let record = Record {
-                    ts: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                    ts: now_ts(),
                     duration: settings.duration_secs,
                     level: settings.level,
                     wpm: result.wpm,
@@ -130,8 +137,7 @@ fn record_mistakes(log: Option<&MistakeLog>, tally: &MistakeTally, level: u8, pr
         return;
     }
     if let Some(log) = log {
-        let ts = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-        let _ = log.append(&MistakeRecord::from_tally(tally, level, practice, ts));
+        let _ = log.append(&MistakeRecord::from_tally(tally, level, practice, now_ts()));
     }
 }
 
@@ -149,27 +155,34 @@ fn results_screen_for(settings: Settings, result: SessionResult, cancelled: bool
     )
 }
 
-/// Read mistakes.jsonl and build the explorer screen for `level`.
-fn weakness_screen_for(level: u8) -> WeaknessScreen {
-    let recs = History::default_dir()
+/// Load all readable mistake records (empty if the file/dir is unavailable).
+fn load_mistake_records() -> Vec<MistakeRecord> {
+    History::default_dir()
         .map(MistakeLog::new)
         .map(|log| log.load_with_skipped().0)
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+/// Read mistakes.jsonl and build the explorer screen for `level`.
+fn weakness_screen_for(level: u8) -> WeaknessScreen {
+    let recs = load_mistake_records();
     WeaknessScreen::new(WeaknessProfile::from_records(&recs, Sort::Rate), level)
 }
 
-/// Build a blended practice source for `level`, falling back to the normal pool
-/// when there isn't enough weakness signal.
-fn practice_source(level: u8) -> Box<dyn WordStream> {
-    let recs = History::default_dir()
-        .map(MistakeLog::new)
-        .map(|log| log.load_with_skipped().0)
-        .unwrap_or_default();
-    let profile = WeaknessProfile::from_records(&recs, Sort::Rate);
-    match PracticePool::build(&profile, level) {
+/// Build a practice source from an already-computed profile, falling back to the
+/// normal level pool when there's no usable weakness signal.
+fn practice_source_from(profile: &WeaknessProfile, level: u8) -> Box<dyn WordStream> {
+    match PracticePool::build(profile, level) {
         Some(p) => Box::new(p),
         None => Box::new(WordPool::for_level(level)),
     }
+}
+
+/// Build a practice source by reading the latest profile from disk (used by the
+/// practice-results restart path, which needs fresh data after a drill).
+fn practice_source(level: u8) -> Box<dyn WordStream> {
+    let profile = WeaknessProfile::from_records(&load_mistake_records(), Sort::Rate);
+    practice_source_from(&profile, level)
 }
 
 fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Result<()> {
@@ -261,12 +274,13 @@ fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Re
                         .unwrap_or(Settings::default().duration_secs);
                     return_to = None;
                     let level = screen.level();
+                    let source = practice_source_from(screen.profile(), level);
                     Screen::Practice(
                         Settings {
                             level,
                             duration_secs,
                         },
-                        practice_source(level),
+                        source,
                     )
                 }
                 WeaknessAction::Quit => return Ok(()),

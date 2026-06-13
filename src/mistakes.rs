@@ -1,6 +1,4 @@
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -84,36 +82,13 @@ impl MistakeLog {
     }
 
     pub fn append(&self, record: &MistakeRecord) -> std::io::Result<()> {
-        if let Some(dir) = self.path.parent() {
-            fs::create_dir_all(dir)?;
-        }
-        let mut f = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)?;
-        let json = serde_json::to_string(record)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        writeln!(f, "{json}")
+        crate::jsonl::append(&self.path, record)
     }
 
     /// Read once; return readable records plus the count of unusable
     /// (unparseable or implausible) non-empty lines.
     pub fn load_with_skipped(&self) -> (Vec<MistakeRecord>, usize) {
-        let Ok(content) = fs::read_to_string(&self.path) else {
-            return (Vec::new(), 0);
-        };
-        let mut records = Vec::new();
-        let mut skipped = 0;
-        for line in content.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            match serde_json::from_str::<MistakeRecord>(line) {
-                Ok(r) if r.is_plausible() => records.push(r),
-                _ => skipped += 1,
-            }
-        }
-        (records, skipped)
+        crate::jsonl::load_with_skipped(&self.path, |r: &MistakeRecord| r.is_plausible())
     }
 }
 

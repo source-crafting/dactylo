@@ -44,7 +44,6 @@ impl WeaknessScreen {
         self.level
     }
 
-    #[cfg(test)]
     pub fn profile(&self) -> &WeaknessProfile {
         &self.profile
     }
