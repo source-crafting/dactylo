@@ -2,3 +2,4 @@
 *.o
 /docs/superpowers/
 .dev-notes/
+.DS_Store
