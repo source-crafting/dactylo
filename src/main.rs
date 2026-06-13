@@ -1,5 +1,7 @@
 mod config;
 mod history;
+mod jsonl;
+mod mistakes;
 mod session;
 mod stats;
 mod ui;
@@ -14,9 +16,18 @@ use ratatui::DefaultTerminal;
 
 use config::{Cli, Settings};
 use history::{summary_of, History, LevelSummary, Record};
+use mistakes::{MistakeLog, MistakeRecord, MistakeTally, Sort, WeaknessProfile};
 use session::{Session, SessionResult};
 use ui::config::{ConfigAction, ConfigScreen};
 use ui::results::{ResultsAction, ResultsScreen};
+use ui::weaknesses::{WeaknessAction, WeaknessScreen};
+use words::{PracticePool, WordPool, WordStream};
+
+/// The current UTC time as an RFC3339 second-precision string (the timestamp
+/// format used in both history.jsonl and mistakes.jsonl).
+fn now_ts() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
 
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
@@ -35,8 +46,8 @@ fn main() -> io::Result<()> {
 }
 
 enum TypingOutcome {
-    Completed(SessionResult),
-    Cancelled(SessionResult),
+    Completed(SessionResult, MistakeTally),
+    Cancelled(SessionResult, MistakeTally),
     Quit,
 }
 
@@ -45,7 +56,9 @@ enum TypingOutcome {
 enum Screen {
     Setup(Settings),
     Typing(Settings),
+    Practice(Settings, Box<dyn WordStream>),
     Stats(ResultsScreen),
+    Weaknesses(WeaknessScreen),
 }
 
 /// History I/O result for a finished session, gathered once.
@@ -77,7 +90,7 @@ fn record_and_snapshot(
             let mut warnings: Vec<String> = Vec::new();
             if !cancelled {
                 let record = Record {
-                    ts: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                    ts: now_ts(),
                     duration: settings.duration_secs,
                     level: settings.level,
                     wpm: result.wpm,
@@ -115,6 +128,19 @@ fn record_and_snapshot(
     }
 }
 
+/// Append the run's mistake detail to `mistakes.jsonl` (best-effort; a failure
+/// is silently ignored — mistake logging must never interrupt the app). Skips
+/// empty tallies (a run with no keystrokes). `practice` runs and cancelled runs
+/// are logged here but never reach `history.jsonl`.
+fn record_mistakes(log: Option<&MistakeLog>, tally: &MistakeTally, level: u8, practice: bool) {
+    if tally.is_empty() {
+        return;
+    }
+    if let Some(log) = log {
+        let _ = log.append(&MistakeRecord::from_tally(tally, level, practice, now_ts()));
+    }
+}
+
 /// Record the session and build the dashboard screen for it.
 fn results_screen_for(settings: Settings, result: SessionResult, cancelled: bool) -> ResultsScreen {
     let history = History::default_dir().map(History::new);
@@ -127,6 +153,36 @@ fn results_screen_for(settings: Settings, result: SessionResult, cancelled: bool
         snap.prev_summary,
         snap.warning,
     )
+}
+
+/// Load all readable mistake records (empty if the file/dir is unavailable).
+fn load_mistake_records() -> Vec<MistakeRecord> {
+    History::default_dir()
+        .map(MistakeLog::new)
+        .map(|log| log.load_with_skipped().0)
+        .unwrap_or_default()
+}
+
+/// Read mistakes.jsonl and build the explorer screen for `level`.
+fn weakness_screen_for(level: u8) -> WeaknessScreen {
+    let recs = load_mistake_records();
+    WeaknessScreen::new(WeaknessProfile::from_records(&recs, Sort::Rate), level)
+}
+
+/// Build a practice source from an already-computed profile, falling back to the
+/// normal level pool when there's no usable weakness signal.
+fn practice_source_from(profile: &WeaknessProfile, level: u8) -> Box<dyn WordStream> {
+    match PracticePool::build(profile, level) {
+        Some(p) => Box::new(p),
+        None => Box::new(WordPool::for_level(level)),
+    }
+}
+
+/// Build a practice source by reading the latest profile from disk (used by the
+/// practice-results restart path, which needs fresh data after a drill).
+fn practice_source(level: u8) -> Box<dyn WordStream> {
+    let profile = WeaknessProfile::from_records(&load_mistake_records(), Sort::Rate);
+    practice_source_from(&profile, level)
 }
 
 fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Result<()> {
@@ -142,6 +198,7 @@ fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Re
     // The stats screen to return to when Esc is pressed in setup. Set when the
     // user opens setup via `s`; cleared once a new session starts.
     let mut return_to: Option<ResultsScreen> = None;
+    let mistake_log = History::default_dir().map(MistakeLog::new);
 
     loop {
         screen = match screen {
@@ -160,12 +217,33 @@ fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Re
             },
             Screen::Typing(settings) => match typing_screen(terminal, settings)? {
                 TypingOutcome::Quit => return Ok(()),
-                TypingOutcome::Completed(r) => {
+                TypingOutcome::Completed(r, tally) => {
+                    record_mistakes(mistake_log.as_ref(), &tally, settings.level, false);
                     Screen::Stats(results_screen_for(settings, r, false))
                 }
-                TypingOutcome::Cancelled(r) => Screen::Stats(results_screen_for(settings, r, true)),
+                TypingOutcome::Cancelled(r, tally) => {
+                    record_mistakes(mistake_log.as_ref(), &tally, settings.level, false);
+                    Screen::Stats(results_screen_for(settings, r, true))
+                }
             },
+            Screen::Practice(settings, source) => {
+                match practice_screen(terminal, settings, source)? {
+                    TypingOutcome::Quit => return Ok(()),
+                    TypingOutcome::Completed(r, tally) => {
+                        record_mistakes(mistake_log.as_ref(), &tally, settings.level, true);
+                        Screen::Stats(ResultsScreen::new_practice(settings, r, false))
+                    }
+                    TypingOutcome::Cancelled(r, tally) => {
+                        record_mistakes(mistake_log.as_ref(), &tally, settings.level, true);
+                        Screen::Stats(ResultsScreen::new_practice(settings, r, true))
+                    }
+                }
+            }
             Screen::Stats(mut screen) => match stats_screen(terminal, &mut screen)? {
+                ResultsAction::Restart if screen.is_practice() => {
+                    let s = screen.settings();
+                    Screen::Practice(s, practice_source(s.level))
+                }
                 ResultsAction::Restart => Screen::Typing(screen.settings()),
                 // Pre-fill setup with the active session's settings (not just
                 // the saved file), and remember this screen to return to.
@@ -174,7 +252,38 @@ fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Re
                     return_to = Some(screen);
                     Screen::Setup(seed)
                 }
+                ResultsAction::Weaknesses => {
+                    let level = screen.settings().level;
+                    return_to = Some(screen);
+                    Screen::Weaknesses(weakness_screen_for(level))
+                }
                 ResultsAction::Quit => return Ok(()),
+            },
+            Screen::Weaknesses(mut screen) => match weaknesses_screen(terminal, &mut screen)? {
+                WeaknessAction::Back => match return_to.take() {
+                    Some(view) => Screen::Stats(view),
+                    None => return Ok(()),
+                },
+                WeaknessAction::Practice => {
+                    // Launching practice leaves the results lineage; capture the
+                    // duration first, then drop the prior results screen — it is
+                    // no longer something to return to.
+                    let duration_secs = return_to
+                        .as_ref()
+                        .map(|r| r.settings().duration_secs)
+                        .unwrap_or(Settings::default().duration_secs);
+                    return_to = None;
+                    let level = screen.level();
+                    let source = practice_source_from(screen.profile(), level);
+                    Screen::Practice(
+                        Settings {
+                            level,
+                            duration_secs,
+                        },
+                        source,
+                    )
+                }
+                WeaknessAction::Quit => return Ok(()),
             },
         };
     }
@@ -211,14 +320,32 @@ fn config_screen(
 
 fn typing_screen(terminal: &mut DefaultTerminal, settings: Settings) -> io::Result<TypingOutcome> {
     let mut session = Session::new(settings.level, Duration::from_secs(settings.duration_secs));
+    typing_loop(terminal, &mut session, settings)
+}
+
+/// Like `typing_screen` but over a prepared practice word source.
+fn practice_screen(
+    terminal: &mut DefaultTerminal,
+    settings: Settings,
+    source: Box<dyn WordStream>,
+) -> io::Result<TypingOutcome> {
+    let mut session = Session::with_source(source, Duration::from_secs(settings.duration_secs));
+    typing_loop(terminal, &mut session, settings)
+}
+
+fn typing_loop(
+    terminal: &mut DefaultTerminal,
+    session: &mut Session,
+    settings: Settings,
+) -> io::Result<TypingOutcome> {
     loop {
         let now = Instant::now();
         session.tick(now);
         if session.is_finished(now) {
-            return Ok(TypingOutcome::Completed(session.results()));
+            return Ok(TypingOutcome::Completed(session.results(), session.tally()));
         }
         terminal
-            .draw(|f| ui::typing::draw(f, &session, now, settings.level, settings.duration_secs))?;
+            .draw(|f| ui::typing::draw(f, session, now, settings.level, settings.duration_secs))?;
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind != KeyEventKind::Press {
@@ -228,12 +355,13 @@ fn typing_screen(terminal: &mut DefaultTerminal, settings: Settings) -> io::Resu
                     return Ok(TypingOutcome::Quit);
                 }
                 match key.code {
-                    // Esc cancels: show partial stats (over elapsed time), not saved.
                     KeyCode::Esc => {
-                        return Ok(TypingOutcome::Cancelled(session.results_at(Instant::now())))
+                        return Ok(TypingOutcome::Cancelled(
+                            session.results_at(Instant::now()),
+                            session.tally(),
+                        ))
                     }
                     KeyCode::Backspace => session.backspace(),
-                    // Fresh Instant: timestamp at receipt, not at render start.
                     KeyCode::Char(c) => session.keystroke(c, Instant::now()),
                     _ => {}
                 }
@@ -258,6 +386,26 @@ fn stats_screen(
             }
             if is_ctrl_c(key.code, key.modifiers) {
                 return Ok(ResultsAction::Quit);
+            }
+            if let Some(action) = screen.handle_key(key.code) {
+                return Ok(action);
+            }
+        }
+    }
+}
+
+fn weaknesses_screen(
+    terminal: &mut DefaultTerminal,
+    screen: &mut WeaknessScreen,
+) -> io::Result<WeaknessAction> {
+    loop {
+        terminal.draw(|f| screen.draw(f))?;
+        if let Event::Key(key) = event::read()? {
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            if is_ctrl_c(key.code, key.modifiers) {
+                return Ok(WeaknessAction::Quit);
             }
             if let Some(action) = screen.handle_key(key.code) {
                 return Ok(action);
@@ -342,5 +490,30 @@ mod tests {
         assert!(completed.warning.is_some());
         let cancelled = record_and_snapshot(None, settings(), sample_result(), true);
         assert!(cancelled.warning.is_none());
+    }
+
+    #[test]
+    fn mistakes_are_logged_for_normal_and_practice_runs() {
+        use crate::mistakes::{MistakeLog, MistakeTally};
+        let dir = tempfile::tempdir().unwrap();
+        let log = MistakeLog::new(dir.path().to_path_buf());
+        let mut tally = MistakeTally::default();
+        tally.keys.insert('b', (10, 4));
+        // normal completed run
+        record_mistakes(Some(&log), &tally, 3, false);
+        // practice run
+        record_mistakes(Some(&log), &tally, 3, true);
+        let (recs, _) = log.load_with_skipped();
+        assert_eq!(recs.len(), 2);
+        assert!(!recs[0].practice && recs[1].practice);
+    }
+
+    #[test]
+    fn empty_tally_is_not_logged() {
+        use crate::mistakes::{MistakeLog, MistakeTally};
+        let dir = tempfile::tempdir().unwrap();
+        let log = MistakeLog::new(dir.path().to_path_buf());
+        record_mistakes(Some(&log), &MistakeTally::default(), 3, false);
+        assert!(log.load_with_skipped().0.is_empty());
     }
 }

@@ -1,10 +1,9 @@
+use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use rand::rngs::StdRng;
-use rand::SeedableRng;
-
+use crate::mistakes::MistakeTally;
 use crate::stats;
-use crate::words::WordPool;
+use crate::words::{WordPool, WordStream};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CharState {
@@ -27,28 +26,52 @@ pub struct SessionResult {
 /// screen always has enough text to fill three lines at the default column width.
 const LOOKAHEAD: usize = 256;
 
+/// Increment an (occurrences, wrong) tally entry for one keystroke.
+fn bump(entry: &mut (u32, u32), wrong: bool) {
+    entry.0 += 1;
+    if wrong {
+        entry.1 += 1;
+    }
+}
+
 pub struct Session {
-    pool: WordPool,
-    rng: StdRng,
+    source: Box<dyn WordStream>,
     target: Vec<char>,
     states: Vec<CharState>,
+    /// Per-position flag: set when any wrong keystroke lands here; never cleared
+    /// by backspace. Used to detect fumbled words.
+    ever_wrong: Vec<bool>,
+    /// (start, end, text) of every generated word, in target order.
+    word_spans: Vec<(usize, usize, String)>,
+    /// expected char -> (occurrences, wrong), keystroke-based; spaces excluded.
+    key_tally: BTreeMap<char, (u32, u32)>,
+    /// "ab" transition -> (occurrences, wrong), keystroke-based, within a word.
+    combo_tally: BTreeMap<String, (u32, u32)>,
     cursor: usize,
     errors: usize,
     keystrokes: usize,
     duration: Duration,
     started_at: Option<Instant>,
-    last_word: Option<&'static str>,
+    last_word: Option<String>,
     wpm_samples: Vec<f64>,
     sampled_secs: u64,
 }
 
 impl Session {
     pub fn new(level: u8, duration: Duration) -> Self {
+        Self::with_source(Box::new(WordPool::for_level(level)), duration)
+    }
+
+    /// Build a session over an arbitrary word source (e.g. the practice pool).
+    pub fn with_source(source: Box<dyn WordStream>, duration: Duration) -> Self {
         let mut session = Session {
-            pool: WordPool::for_level(level),
-            rng: StdRng::from_entropy(),
+            source,
             target: Vec::new(),
             states: Vec::new(),
+            ever_wrong: Vec::new(),
+            word_spans: Vec::new(),
+            key_tally: BTreeMap::new(),
+            combo_tally: BTreeMap::new(),
             cursor: 0,
             errors: 0,
             keystrokes: 0,
@@ -67,13 +90,18 @@ impl Session {
             if !self.target.is_empty() {
                 self.target.push(' ');
                 self.states.push(CharState::Untyped);
+                self.ever_wrong.push(false);
             }
-            let word = self.pool.next_word(self.last_word, &mut self.rng);
-            self.last_word = Some(word);
+            let word = self.source.next_word(self.last_word.as_deref());
+            let start = self.target.len();
             for c in word.chars() {
                 self.target.push(c);
                 self.states.push(CharState::Untyped);
+                self.ever_wrong.push(false);
             }
+            let end = self.target.len();
+            self.word_spans.push((start, end, word.clone()));
+            self.last_word = Some(word);
         }
     }
 
@@ -85,11 +113,26 @@ impl Session {
             self.started_at = Some(now);
         }
         self.keystrokes += 1;
-        if c == self.target[self.cursor] {
-            self.states[self.cursor] = CharState::Correct;
-        } else {
+        let expected = self.target[self.cursor];
+        let wrong = c != expected;
+        if wrong {
             self.states[self.cursor] = CharState::Wrong;
+            self.ever_wrong[self.cursor] = true;
             self.errors += 1;
+        } else {
+            self.states[self.cursor] = CharState::Correct;
+        }
+        if expected != ' ' {
+            bump(self.key_tally.entry(expected).or_insert((0, 0)), wrong);
+            // Within-word bigram: skip the transition across the inter-word
+            // space (prev is the previous *target* char, not what was typed).
+            if self.cursor > 0 {
+                let prev = self.target[self.cursor - 1];
+                if prev != ' ' {
+                    let combo: String = [prev, expected].into_iter().collect();
+                    bump(self.combo_tally.entry(combo).or_insert((0, 0)), wrong);
+                }
+            }
         }
         self.cursor += 1;
         self.extend_target();
@@ -192,6 +235,24 @@ impl Session {
             errors: self.errors,
             consistency: stats::consistency(&self.wpm_samples),
             chars: self.keystrokes,
+        }
+    }
+
+    /// Snapshot the mistakes recorded so far this run.
+    pub fn tally(&self) -> MistakeTally {
+        let mut words: BTreeMap<String, (u32, u32)> = BTreeMap::new();
+        for (start, end, text) in &self.word_spans {
+            // Count a word only once it is fully typed (cursor past its last
+            // char); an in-progress final word at session end is not counted.
+            if *end <= self.cursor {
+                let fumbled = (*start..*end).any(|p| self.ever_wrong[p]);
+                bump(words.entry(text.clone()).or_insert((0, 0)), fumbled);
+            }
+        }
+        MistakeTally {
+            keys: self.key_tally.clone(),
+            words,
+            combos: self.combo_tally.clone(),
         }
     }
 }
@@ -367,5 +428,116 @@ mod tests {
         assert_eq!(s.cursor(), 1);
         assert_eq!(s.results().errors, 0);
         assert_eq!(s.results().chars, 1);
+    }
+
+    #[test]
+    fn tally_counts_key_occurrences_and_wrong() {
+        let mut s = new_session();
+        let t0 = Instant::now();
+        let c0 = s.target()[0]; // a real expected char (never a space at pos 0)
+        s.keystroke(c0, t0); // correct
+                             // retype position 1 wrong then correct (keystroke-based: 2 occurrences)
+        let c1 = s.target()[1];
+        s.keystroke('@', t0); // wrong at pos 1
+        s.backspace();
+        s.keystroke(c1, t0); // correct at pos 1
+        let tally = s.tally();
+        // c0: 1 occurrence, 0 wrong
+        assert_eq!(tally.keys.get(&c0), Some(&(1, 0)));
+        // c1: 2 occurrences (wrong then correct), 1 wrong
+        assert_eq!(tally.keys.get(&c1), Some(&(2, 1)));
+    }
+
+    #[test]
+    fn tally_skips_spaces_as_keys() {
+        let mut s = new_session();
+        let t0 = Instant::now();
+        // Type through the first word and its trailing space.
+        for _ in 0..10 {
+            let c = s.target()[s.cursor()];
+            s.keystroke(c, t0);
+        }
+        assert!(!s.tally().keys.contains_key(&' '));
+    }
+
+    #[test]
+    fn tally_marks_a_word_fumbled_on_any_wrong_keystroke() {
+        let mut s = new_session();
+        let t0 = Instant::now();
+        // The first word spans target[0..first_space].
+        let first_space = s.target().iter().position(|&c| c == ' ').unwrap();
+        let word: String = s.target()[..first_space].iter().collect();
+        // Fumble the very first character, correct it, then type the rest right.
+        s.keystroke('@', t0);
+        s.backspace();
+        for i in 0..first_space {
+            let c = s.target()[i];
+            s.keystroke(c, t0);
+        }
+        // Advance past the space into the next word so the first word is "seen".
+        let sp = s.target()[first_space];
+        s.keystroke(sp, t0);
+        let tally = s.tally();
+        assert_eq!(tally.words.get(&word), Some(&(1, 1))); // seen once, fumbled
+    }
+
+    #[test]
+    fn tally_excludes_partially_typed_word() {
+        let mut s = new_session();
+        let t0 = Instant::now();
+        let first_space = s.target().iter().position(|&c| c == ' ').unwrap();
+        let first_word: String = s.target()[..first_space].iter().collect();
+        // Type only the FIRST char. Words are >= 2 chars, so the first word can
+        // never be fully typed here, and a partially-typed word must not count.
+        s.keystroke(s.target()[0], t0);
+        assert!(!s.tally().words.contains_key(&first_word));
+    }
+
+    #[test]
+    fn tally_records_within_word_bigrams() {
+        let mut s = new_session();
+        let t0 = Instant::now();
+        // Type the first word's first two chars: the 2nd keystroke forms the
+        // bigram target[0]+target[1].
+        let c0 = s.target()[0];
+        let c1 = s.target()[1];
+        let bigram: String = [c0, c1].iter().collect();
+        s.keystroke(c0, t0);
+        s.keystroke('@', t0); // wrong at position 1
+        let tally = s.tally();
+        assert_eq!(tally.combos.get(&bigram), Some(&(1, 1)));
+    }
+
+    #[test]
+    fn tally_records_correct_bigram_with_zero_wrong() {
+        let mut s = new_session();
+        let t0 = Instant::now();
+        let c0 = s.target()[0];
+        let c1 = s.target()[1];
+        let bigram: String = [c0, c1].iter().collect();
+        s.keystroke(c0, t0);
+        s.keystroke(c1, t0); // both correct
+        assert_eq!(s.tally().combos.get(&bigram), Some(&(1, 0)));
+    }
+
+    #[test]
+    fn tally_skips_bigrams_across_spaces() {
+        let mut s = new_session();
+        let t0 = Instant::now();
+        let first_space = s.target().iter().position(|&c| c == ' ').unwrap();
+        // Type up to and including the space, then the first char of word 2.
+        for i in 0..=first_space {
+            let c = s.target()[i];
+            s.keystroke(c, t0);
+        }
+        let c_after = s.target()[first_space + 1];
+        s.keystroke(c_after, t0);
+        // No combo key should contain a space, and the space->letter transition
+        // is never recorded.
+        assert!(tally_has_no_space_combo(&s.tally()));
+    }
+
+    fn tally_has_no_space_combo(t: &MistakeTally) -> bool {
+        t.combos.keys().all(|k| !k.contains(' '))
     }
 }

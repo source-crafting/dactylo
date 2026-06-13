@@ -12,6 +12,7 @@ use crate::session::SessionResult;
 pub enum ResultsAction {
     Restart,
     ChangeSettings,
+    Weaknesses,
     Quit,
 }
 
@@ -38,6 +39,7 @@ pub struct ResultsScreen {
     /// "vs your N previous sessions" comparison on the summary view.
     prev_summary: Option<LevelSummary>,
     warning: Option<String>,
+    practice: bool,
     view: View,
     selected_level: u8,
 }
@@ -63,7 +65,29 @@ impl ResultsScreen {
             cancelled,
             prev_summary,
             warning,
+            practice: false,
         }
+    }
+
+    /// Results for a practice run: no history baseline, not saved, shown with a
+    /// banner. `cancelled` distinguishes a finished drill from an Esc-cancelled
+    /// one for the status line.
+    pub fn new_practice(settings: Settings, result: SessionResult, cancelled: bool) -> Self {
+        ResultsScreen {
+            view: View::Summary,
+            selected_level: settings.level.clamp(1, 5),
+            records: Vec::new(),
+            settings,
+            result,
+            cancelled,
+            prev_summary: None,
+            warning: None,
+            practice: true,
+        }
+    }
+
+    pub fn is_practice(&self) -> bool {
+        self.practice
     }
 
     /// The just-played settings (level + duration), for restart/change-settings.
@@ -85,8 +109,11 @@ impl ResultsScreen {
         match self.view {
             View::Summary => match code {
                 KeyCode::Enter => Some(ResultsAction::Restart),
-                KeyCode::Char('s') | KeyCode::Char('S') => Some(ResultsAction::ChangeSettings),
-                KeyCode::Char('h') | KeyCode::Char('H') => {
+                KeyCode::Char('s') | KeyCode::Char('S') if !self.practice => {
+                    Some(ResultsAction::ChangeSettings)
+                }
+                KeyCode::Char('w') | KeyCode::Char('W') => Some(ResultsAction::Weaknesses),
+                KeyCode::Char('h') | KeyCode::Char('H') if !self.practice => {
                     self.view = View::History;
                     None
                 }
@@ -107,6 +134,7 @@ impl ResultsScreen {
                     self.view = View::Summary;
                     None
                 }
+                KeyCode::Char('w') | KeyCode::Char('W') => Some(ResultsAction::Weaknesses),
                 KeyCode::Char('q') | KeyCode::Char('Q') => Some(ResultsAction::Quit),
                 _ => None,
             },
@@ -222,35 +250,54 @@ impl ResultsScreen {
             rows[4],
         );
 
-        let mut meta = vec![Span::styled(
-            format!("level {} · {dur}s", self.settings.level),
-            Style::new().fg(Color::DarkGray),
-        )];
-        match &self.warning {
-            Some(w) => {
-                meta.push(Span::styled(" · ", Style::new().fg(Color::DarkGray)));
-                meta.push(Span::styled(
-                    format!("warning: {w}"),
+        if self.practice {
+            frame.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    "practice · not saved",
                     Style::new().fg(Color::Yellow),
-                ));
-            }
-            // Only claim "saved" for a completed run that actually recorded.
-            None if !self.cancelled => meta.push(Span::styled(
-                " · saved to ~/.dactylo",
+                ))),
+                rows[5],
+            );
+            frame.render_widget(
+                Paragraph::new(crate::ui::chrome::key_hints(&[
+                    ("Enter", "practice again"),
+                    ("w", "weaknesses"),
+                    ("q", "quit"),
+                ])),
+                rows[6],
+            );
+        } else {
+            let mut meta = vec![Span::styled(
+                format!("level {} · {dur}s", self.settings.level),
                 Style::new().fg(Color::DarkGray),
-            )),
-            None => {} // cancelled, no warning: the status line states it wasn't saved
+            )];
+            match &self.warning {
+                Some(w) => {
+                    meta.push(Span::styled(" · ", Style::new().fg(Color::DarkGray)));
+                    meta.push(Span::styled(
+                        format!("warning: {w}"),
+                        Style::new().fg(Color::Yellow),
+                    ));
+                }
+                // Only claim "saved" for a completed run that actually recorded.
+                None if !self.cancelled => meta.push(Span::styled(
+                    " · saved to ~/.dactylo",
+                    Style::new().fg(Color::DarkGray),
+                )),
+                None => {} // cancelled, no warning: the status line states it wasn't saved
+            }
+            frame.render_widget(Paragraph::new(Line::from(meta)), rows[5]);
+            frame.render_widget(
+                Paragraph::new(crate::ui::chrome::key_hints(&[
+                    ("Enter", "restart"),
+                    ("s", "settings"),
+                    ("h", "history"),
+                    ("w", "weaknesses"),
+                    ("q", "quit"),
+                ])),
+                rows[6],
+            );
         }
-        frame.render_widget(Paragraph::new(Line::from(meta)), rows[5]);
-        frame.render_widget(
-            Paragraph::new(crate::ui::chrome::key_hints(&[
-                ("Enter", "restart"),
-                ("s", "settings"),
-                ("h", "history"),
-                ("q", "quit"),
-            ])),
-            rows[6],
-        );
         let status = if self.cancelled {
             "session cancelled — not saved"
         } else {
@@ -380,7 +427,15 @@ impl ResultsScreen {
             frame.render_widget(Paragraph::new(warning_line(w)), chunks[5]);
         }
 
-        frame.render_widget(Paragraph::new(dim(HISTORY_FOOTER)), chunks[7]);
+        frame.render_widget(
+            Paragraph::new(crate::ui::chrome::key_hints(&[
+                ("←/→", "level"),
+                ("esc/h", "back"),
+                ("w", "weaknesses"),
+                ("q", "quit"),
+            ])),
+            chunks[7],
+        );
     }
 
     /// Small-terminal fallback for the history view: same numbers as the full
@@ -428,7 +483,7 @@ impl ResultsScreen {
         }
 
         lines.push(Line::default());
-        lines.push(dim(HISTORY_FOOTER));
+        lines.push(dim("  ←/→ level · esc/h back · w weaknesses · q quit"));
         frame.render_widget(Paragraph::new(lines), chunks[1]);
     }
 }
@@ -501,9 +556,6 @@ fn metric_delta(
     };
     ("▼", format!("{shown:+} vs avg"), color)
 }
-
-/// The footer hint shown on both the full and compact history views.
-const HISTORY_FOOTER: &str = "  ←/→ level · esc/h back · q quit";
 
 /// Smallest value range (WPM points / accuracy %) a sparkline spreads to full
 /// height; narrower ranges render near-flat so noise isn't exaggerated.
@@ -612,6 +664,17 @@ mod tests {
         }
     }
 
+    fn sample_result() -> SessionResult {
+        result()
+    }
+
+    fn settings() -> Settings {
+        Settings {
+            duration_secs: 60,
+            level: 3,
+        }
+    }
+
     fn screen(level: u8) -> ResultsScreen {
         ResultsScreen::new(
             Vec::new(),
@@ -621,6 +684,17 @@ mod tests {
             },
             result(),
             false,
+            None,
+            None,
+        )
+    }
+
+    fn results_screen(cancelled: bool) -> ResultsScreen {
+        ResultsScreen::new(
+            Vec::new(),
+            settings(),
+            sample_result(),
+            cancelled,
             None,
             None,
         )
@@ -782,5 +856,45 @@ mod tests {
             (arrow, text.as_str(), color),
             ("▲", "-1 vs avg", ratatui::style::Color::Green)
         );
+    }
+
+    #[test]
+    fn w_opens_weaknesses_from_summary() {
+        let mut s = results_screen(false);
+        assert!(matches!(
+            s.handle_key(KeyCode::Char('w')),
+            Some(ResultsAction::Weaknesses)
+        ));
+    }
+
+    #[test]
+    fn w_opens_weaknesses_from_history_view() {
+        let mut s = results_screen(false);
+        s.handle_key(KeyCode::Char('h')); // enter History view
+        assert!(matches!(
+            s.handle_key(KeyCode::Char('w')),
+            Some(ResultsAction::Weaknesses)
+        ));
+    }
+
+    #[test]
+    fn practice_results_restart_and_no_settings() {
+        let mut s = ResultsScreen::new_practice(settings(), sample_result(), false);
+        assert!(s.is_practice());
+        assert!(matches!(
+            s.handle_key(KeyCode::Enter),
+            Some(ResultsAction::Restart)
+        ));
+        // 's' does nothing in practice results (no settings change)
+        assert!(s.handle_key(KeyCode::Char('s')).is_none());
+    }
+
+    #[test]
+    fn practice_results_ignores_history_key() {
+        let mut s = ResultsScreen::new_practice(settings(), sample_result(), false);
+        // 'h' would open the history view on a normal results screen, but a
+        // practice run has no history baseline, so it is a no-op.
+        assert!(s.handle_key(KeyCode::Char('h')).is_none());
+        assert!(s.is_practice()); // still a practice screen
     }
 }

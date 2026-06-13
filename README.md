@@ -28,6 +28,9 @@ Built in Rust with [ratatui](https://ratatui.rs).
 - **End-of-session stats** — WPM, raw WPM, accuracy, errors, and consistency.
 - **Progression tracking** — every session is compared against your average and
   personal best *for that level*, with ▲/▼ deltas.
+- **Weakness tracking & practice** — dactylo records your weak keys, letter
+  combinations, and fumbled words across sessions; press **w** to explore them
+  and **Enter** to drill them in a blended practice run.
 - **Persistent history** — results are stored as JSON lines in `~/.dactylo/`.
 
 ## Install
@@ -88,7 +91,8 @@ After time runs out — or after you cancel with Esc — you'll see a 2×3 grid:
 each with a delta vs your average at that level — or a highlighted `best yet`
 when you beat your record for that metric — and your level average under
 **LEVEL**. Press **Enter** to restart, **s** for
-settings, **h** for the history view, or `q`/Esc to quit.
+settings, **h** for the history view, **w** for your weaknesses, or `q`/Esc to
+quit.
 
 ### History view
 
@@ -98,6 +102,21 @@ row and an **accuracy** row, each showing the latest/average/best plus a
 sparkline of that metric across the level's sessions. Use **←/→** to switch the
 level tab. Press **Esc** (or **h**) to return to the results screen, or `q` to
 quit. (On a short terminal the sparklines are replaced by a text summary.)
+
+### Weaknesses & practice
+
+Press **w** on the results screen to open the weakness explorer: ranked columns
+of your **weak keys**, **weak letter-combinations**, and most **fumbled words**,
+each with an error rate and miss count, measured over your recent sessions. Use
+**←/→** to switch the sort between error rate and total misses.
+
+Press **Enter** there to start a **practice run** — a blended stream of the words
+you fumble most plus words rich in your weak keys/combos. Practice updates your
+weakness profile but is **not** saved to your WPM history or personal bests, so
+drilling hard material never dents your records. From practice results, **Enter**
+practices again and **w** reopens the explorer. (Mistake detail is stored
+separately in `~/.dactylo/mistakes.jsonl`; until you've typed enough, the
+explorer shows a "not enough data yet" note.)
 
 ## Difficulty levels
 

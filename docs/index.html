@@ -347,6 +347,11 @@
         <p>Every session is measured against your average and personal best <em>for that level</em>, with up and down deltas so you can see the trend at a glance.</p>
       </div>
       <div class="fcard">
+        <div class="fsig">weak keys · combos · words</div>
+        <h3>Find and drill your weak spots</h3>
+        <p>dactylo learns the keys, letter pairs, and whole words you fumble most across sessions. Press <em>w</em> to see them ranked, then <em>Enter</em> to practice a stream built from exactly those — drilling never dents your WPM records.</p>
+      </div>
+      <div class="fcard">
         <div class="fsig">~/.dactylo/history.jsonl</div>
         <h3>Persistent, plain-text history</h3>
         <p>Results are appended as JSON lines on your own machine. Yours to read, grep, chart, or back up. Cancelled runs are simply never recorded.</p>
@@ -423,7 +428,7 @@
             <tr><td>--level</td><td>1–5</td><td>3</td></tr>
           </tbody>
         </table>
-        <p class="usage-note">The setup screen appears on first launch only — <span class="kbd2">←</span> <span class="kbd2">→</span> change a value, <span class="kbd2">Tab</span> switches fields, <span class="kbd2">Enter</span> starts. Your choice is saved, so later launches drop you straight into a session. Mid-run, <span class="kbd2">Esc</span> cancels to a partial results screen (not saved) and <span class="kbd2">Ctrl-C</span> exits. On the results screen: <span class="kbd2">Enter</span> restarts, <span class="kbd2">s</span> reopens setup, <span class="kbd2">h</span> opens your per-level history, <span class="kbd2">q</span> or <span class="kbd2">Esc</span> quits.</p>
+        <p class="usage-note">The setup screen appears on first launch only — <span class="kbd2">←</span> <span class="kbd2">→</span> change a value, <span class="kbd2">Tab</span> switches fields, <span class="kbd2">Enter</span> starts. Your choice is saved, so later launches drop you straight into a session. Mid-run, <span class="kbd2">Esc</span> cancels to a partial results screen (not saved) and <span class="kbd2">Ctrl-C</span> exits. On the results screen: <span class="kbd2">Enter</span> restarts, <span class="kbd2">s</span> reopens setup, <span class="kbd2">h</span> opens your per-level history, <span class="kbd2">w</span> shows your weak keys/combos/words (<span class="kbd2">Enter</span> there starts a practice drill), <span class="kbd2">q</span> or <span class="kbd2">Esc</span> quits.</p>
       </div>
     </div>
   </section>
@@ -565,7 +570,7 @@
       +   stat('Level','3','','','your avg 68')
       + '</div>'
       + '<div class="results-foot"><span>level 3 · 30s · saved to ~/.dactylo</span>'
-      +   '<span><span class="kbd">Enter</span> restart &nbsp; <span class="kbd">s</span> settings &nbsp; <span class="kbd">h</span> history &nbsp; <span class="kbd">q</span> quit</span></div>'
+      +   '<span><span class="kbd">Enter</span> restart &nbsp; <span class="kbd">w</span> weaknesses &nbsp; <span class="kbd">h</span> history &nbsp; <span class="kbd">q</span> quit</span></div>'
       + '</div>';
   }
   function stat(lbl,val,unit,dir,delta){
