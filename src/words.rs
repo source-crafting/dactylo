@@ -73,7 +73,6 @@ impl WordStream for WordPool {
 /// A blended practice stream: the user's fumbled words plus level-pool words
 /// rich in their weak keys/combos. `next_word` flips a coin between the two
 /// lists (~50/50), falling back to whichever is non-empty.
-#[allow(dead_code)]
 pub struct PracticePool {
     fumbled: Vec<String>,
     weak_rich: Vec<String>,
@@ -83,7 +82,6 @@ pub struct PracticePool {
 impl PracticePool {
     /// `None` when neither list can be populated (no usable weaknesses) — the
     /// caller should fall back to a normal pool.
-    #[allow(dead_code)]
     pub fn build(profile: &WeaknessProfile, level: u8) -> Option<Self> {
         Self::with_rng(profile, level, StdRng::from_entropy())
     }

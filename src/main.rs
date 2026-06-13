@@ -15,10 +15,12 @@ use ratatui::DefaultTerminal;
 
 use config::{Cli, Settings};
 use history::{summary_of, History, LevelSummary, Record};
-use mistakes::{MistakeLog, MistakeRecord, MistakeTally};
+use mistakes::{MistakeLog, MistakeRecord, MistakeTally, Sort, WeaknessProfile};
 use session::{Session, SessionResult};
 use ui::config::{ConfigAction, ConfigScreen};
 use ui::results::{ResultsAction, ResultsScreen};
+use ui::weaknesses::{WeaknessAction, WeaknessScreen};
+use words::{PracticePool, WordPool, WordStream};
 
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
@@ -47,7 +49,9 @@ enum TypingOutcome {
 enum Screen {
     Setup(Settings),
     Typing(Settings),
+    Practice(Settings, Box<dyn WordStream>),
     Stats(ResultsScreen),
+    Weaknesses(WeaknessScreen),
 }
 
 /// History I/O result for a finished session, gathered once.
@@ -145,6 +149,29 @@ fn results_screen_for(settings: Settings, result: SessionResult, cancelled: bool
     )
 }
 
+/// Read mistakes.jsonl and build the explorer screen for `level`.
+fn weakness_screen_for(level: u8) -> WeaknessScreen {
+    let recs = History::default_dir()
+        .map(MistakeLog::new)
+        .map(|log| log.load_with_skipped().0)
+        .unwrap_or_default();
+    WeaknessScreen::new(WeaknessProfile::from_records(&recs, Sort::Rate), level)
+}
+
+/// Build a blended practice source for `level`, falling back to the normal pool
+/// when there isn't enough weakness signal.
+fn practice_source(level: u8) -> Box<dyn WordStream> {
+    let recs = History::default_dir()
+        .map(MistakeLog::new)
+        .map(|log| log.load_with_skipped().0)
+        .unwrap_or_default();
+    let profile = WeaknessProfile::from_records(&recs, Sort::Rate);
+    match PracticePool::build(&profile, level) {
+        Some(p) => Box::new(p),
+        None => Box::new(WordPool::for_level(level)),
+    }
+}
+
 fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Result<()> {
     // Launch straight into a session when the settings are already known — from
     // CLI flags, or a previously saved file. Only first-time users (no saved
@@ -186,7 +213,24 @@ fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Re
                     Screen::Stats(results_screen_for(settings, r, true))
                 }
             },
+            Screen::Practice(settings, source) => {
+                match practice_screen(terminal, settings, source)? {
+                    TypingOutcome::Quit => return Ok(()),
+                    TypingOutcome::Completed(r, tally) => {
+                        record_mistakes(mistake_log.as_ref(), &tally, settings.level, true);
+                        Screen::Stats(ResultsScreen::new_practice(settings, r, false))
+                    }
+                    TypingOutcome::Cancelled(r, tally) => {
+                        record_mistakes(mistake_log.as_ref(), &tally, settings.level, true);
+                        Screen::Stats(ResultsScreen::new_practice(settings, r, true))
+                    }
+                }
+            }
             Screen::Stats(mut screen) => match stats_screen(terminal, &mut screen)? {
+                ResultsAction::Restart if screen.is_practice() => {
+                    let s = screen.settings();
+                    Screen::Practice(s, practice_source(s.level))
+                }
                 ResultsAction::Restart => Screen::Typing(screen.settings()),
                 // Pre-fill setup with the active session's settings (not just
                 // the saved file), and remember this screen to return to.
@@ -195,7 +239,37 @@ fn run(terminal: &mut DefaultTerminal, cli_settings: Option<Settings>) -> io::Re
                     return_to = Some(screen);
                     Screen::Setup(seed)
                 }
+                ResultsAction::Weaknesses => {
+                    let level = screen.settings().level;
+                    return_to = Some(screen);
+                    Screen::Weaknesses(weakness_screen_for(level))
+                }
                 ResultsAction::Quit => return Ok(()),
+            },
+            Screen::Weaknesses(mut screen) => match weaknesses_screen(terminal, &mut screen)? {
+                WeaknessAction::Back => match return_to.take() {
+                    Some(view) => Screen::Stats(view),
+                    None => return Ok(()),
+                },
+                WeaknessAction::Practice => {
+                    // Launching practice leaves the results lineage; capture the
+                    // duration first, then drop the prior results screen — it is
+                    // no longer something to return to.
+                    let duration_secs = return_to
+                        .as_ref()
+                        .map(|r| r.settings().duration_secs)
+                        .unwrap_or(Settings::default().duration_secs);
+                    return_to = None;
+                    let level = screen.level();
+                    Screen::Practice(
+                        Settings {
+                            level,
+                            duration_secs,
+                        },
+                        practice_source(level),
+                    )
+                }
+                WeaknessAction::Quit => return Ok(()),
             },
         };
     }
@@ -232,6 +306,24 @@ fn config_screen(
 
 fn typing_screen(terminal: &mut DefaultTerminal, settings: Settings) -> io::Result<TypingOutcome> {
     let mut session = Session::new(settings.level, Duration::from_secs(settings.duration_secs));
+    typing_loop(terminal, &mut session, settings)
+}
+
+/// Like `typing_screen` but over a prepared practice word source.
+fn practice_screen(
+    terminal: &mut DefaultTerminal,
+    settings: Settings,
+    source: Box<dyn WordStream>,
+) -> io::Result<TypingOutcome> {
+    let mut session = Session::with_source(source, Duration::from_secs(settings.duration_secs));
+    typing_loop(terminal, &mut session, settings)
+}
+
+fn typing_loop(
+    terminal: &mut DefaultTerminal,
+    session: &mut Session,
+    settings: Settings,
+) -> io::Result<TypingOutcome> {
     loop {
         let now = Instant::now();
         session.tick(now);
@@ -239,7 +331,7 @@ fn typing_screen(terminal: &mut DefaultTerminal, settings: Settings) -> io::Resu
             return Ok(TypingOutcome::Completed(session.results(), session.tally()));
         }
         terminal
-            .draw(|f| ui::typing::draw(f, &session, now, settings.level, settings.duration_secs))?;
+            .draw(|f| ui::typing::draw(f, session, now, settings.level, settings.duration_secs))?;
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind != KeyEventKind::Press {
@@ -249,7 +341,6 @@ fn typing_screen(terminal: &mut DefaultTerminal, settings: Settings) -> io::Resu
                     return Ok(TypingOutcome::Quit);
                 }
                 match key.code {
-                    // Esc cancels: show partial stats (over elapsed time), not saved.
                     KeyCode::Esc => {
                         return Ok(TypingOutcome::Cancelled(
                             session.results_at(Instant::now()),
@@ -257,7 +348,6 @@ fn typing_screen(terminal: &mut DefaultTerminal, settings: Settings) -> io::Resu
                         ))
                     }
                     KeyCode::Backspace => session.backspace(),
-                    // Fresh Instant: timestamp at receipt, not at render start.
                     KeyCode::Char(c) => session.keystroke(c, Instant::now()),
                     _ => {}
                 }
@@ -282,6 +372,26 @@ fn stats_screen(
             }
             if is_ctrl_c(key.code, key.modifiers) {
                 return Ok(ResultsAction::Quit);
+            }
+            if let Some(action) = screen.handle_key(key.code) {
+                return Ok(action);
+            }
+        }
+    }
+}
+
+fn weaknesses_screen(
+    terminal: &mut DefaultTerminal,
+    screen: &mut WeaknessScreen,
+) -> io::Result<WeaknessAction> {
+    loop {
+        terminal.draw(|f| screen.draw(f))?;
+        if let Event::Key(key) = event::read()? {
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            if is_ctrl_c(key.code, key.modifiers) {
+                return Ok(WeaknessAction::Quit);
             }
             if let Some(action) = screen.handle_key(key.code) {
                 return Ok(action);

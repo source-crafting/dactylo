@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use ratatui::crossterm::event::KeyCode;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};

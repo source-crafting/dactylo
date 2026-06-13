@@ -1,7 +1,3 @@
-// Items here are public API for future tasks; silence dead-code warnings in
-// this binary crate until the callers are wired up.
-#![allow(dead_code)]
-
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
