@@ -1,5 +1,6 @@
 mod config;
 mod history;
+mod mistakes;
 mod session;
 mod stats;
 mod ui;
