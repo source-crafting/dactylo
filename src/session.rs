@@ -26,6 +26,14 @@ pub struct SessionResult {
 /// screen always has enough text to fill three lines at the default column width.
 const LOOKAHEAD: usize = 256;
 
+/// Increment an (occurrences, wrong) tally entry for one keystroke.
+fn bump(entry: &mut (u32, u32), wrong: bool) {
+    entry.0 += 1;
+    if wrong {
+        entry.1 += 1;
+    }
+}
+
 pub struct Session {
     source: Box<dyn WordStream>,
     target: Vec<char>,
@@ -37,6 +45,8 @@ pub struct Session {
     word_spans: Vec<(usize, usize, String)>,
     /// expected char -> (occurrences, wrong), keystroke-based; spaces excluded.
     key_tally: BTreeMap<char, (u32, u32)>,
+    /// "ab" transition -> (occurrences, wrong), keystroke-based, within a word.
+    combo_tally: BTreeMap<String, (u32, u32)>,
     cursor: usize,
     errors: usize,
     keystrokes: usize,
@@ -61,6 +71,7 @@ impl Session {
             ever_wrong: Vec::new(),
             word_spans: Vec::new(),
             key_tally: BTreeMap::new(),
+            combo_tally: BTreeMap::new(),
             cursor: 0,
             errors: 0,
             keystrokes: 0,
@@ -112,10 +123,15 @@ impl Session {
             self.states[self.cursor] = CharState::Correct;
         }
         if expected != ' ' {
-            let e = self.key_tally.entry(expected).or_insert((0, 0));
-            e.0 += 1;
-            if wrong {
-                e.1 += 1;
+            bump(self.key_tally.entry(expected).or_insert((0, 0)), wrong);
+            // Within-word bigram: skip the transition across the inter-word
+            // space (prev is the previous *target* char, not what was typed).
+            if self.cursor > 0 {
+                let prev = self.target[self.cursor - 1];
+                if prev != ' ' {
+                    let combo: String = [prev, expected].into_iter().collect();
+                    bump(self.combo_tally.entry(combo).or_insert((0, 0)), wrong);
+                }
             }
         }
         self.cursor += 1;
@@ -239,7 +255,7 @@ impl Session {
         MistakeTally {
             keys: self.key_tally.clone(),
             words,
-            combos: BTreeMap::new(),
+            combos: self.combo_tally.clone(),
         }
     }
 }
@@ -466,5 +482,53 @@ mod tests {
         s.keystroke(sp, t0);
         let tally = s.tally();
         assert_eq!(tally.words.get(&word), Some(&(1, 1))); // seen once, fumbled
+    }
+
+    #[test]
+    fn tally_records_within_word_bigrams() {
+        let mut s = new_session();
+        let t0 = Instant::now();
+        // Type the first word's first two chars: the 2nd keystroke forms the
+        // bigram target[0]+target[1].
+        let c0 = s.target()[0];
+        let c1 = s.target()[1];
+        let bigram: String = [c0, c1].iter().collect();
+        s.keystroke(c0, t0);
+        s.keystroke('@', t0); // wrong at position 1
+        let tally = s.tally();
+        assert_eq!(tally.combos.get(&bigram), Some(&(1, 1)));
+    }
+
+    #[test]
+    fn tally_records_correct_bigram_with_zero_wrong() {
+        let mut s = new_session();
+        let t0 = Instant::now();
+        let c0 = s.target()[0];
+        let c1 = s.target()[1];
+        let bigram: String = [c0, c1].iter().collect();
+        s.keystroke(c0, t0);
+        s.keystroke(c1, t0); // both correct
+        assert_eq!(s.tally().combos.get(&bigram), Some(&(1, 0)));
+    }
+
+    #[test]
+    fn tally_skips_bigrams_across_spaces() {
+        let mut s = new_session();
+        let t0 = Instant::now();
+        let first_space = s.target().iter().position(|&c| c == ' ').unwrap();
+        // Type up to and including the space, then the first char of word 2.
+        for i in 0..=first_space {
+            let c = s.target()[i];
+            s.keystroke(c, t0);
+        }
+        let c_after = s.target()[first_space + 1];
+        s.keystroke(c_after, t0);
+        // No combo key should contain a space, and the space->letter transition
+        // is never recorded.
+        assert!(tally_has_no_space_combo(&s.tally()));
+    }
+
+    fn tally_has_no_space_combo(t: &MistakeTally) -> bool {
+        t.combos.keys().all(|k| !k.contains(' '))
     }
 }
