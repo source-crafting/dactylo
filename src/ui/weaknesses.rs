@@ -261,6 +261,15 @@ mod tests {
     }
 
     #[test]
+    fn renders_combos_column_entries() {
+        let mut p = populated();
+        p.combos = vec![weakness("io", 20, 6)];
+        let text = render(&WeaknessScreen::new(p, 3));
+        assert!(text.contains("COMBOS"));
+        assert!(text.contains("io"));
+    }
+
+    #[test]
     fn long_fumbled_word_is_truncated() {
         let profile = WeaknessProfile {
             keys: Vec::new(),
